@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bitwise Shift & Rotate - Standalone</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+  </style>
+</head>
+<body class="bg-gray-50">
+  <div id="root"></div>
+  
+  <script type="module">
+    import React from 'https://esm.sh/react@18.2.0';
+    import ReactDOM from 'https://esm.sh/react-dom@18.2.0/client';
+    
+    const { useState } = React;
+    
+    function BitwiseOperations() {
+      const [binaryInput, setBinaryInput] = useState('');
+      const [operation, setOperation] = useState('left-shift');
+      const [positions, setPositions] = useState(1);
+      const [result, setResult] = useState('');
+
+      const validateBinary = (value) => {
+        return /^[01]+$/.test(value);
+      };
+
+      const performOperation = () => {
+        if (!binaryInput || !validateBinary(binaryInput)) {
+          setResult('');
+          return;
+        }
+
+        const bitWidth = Math.max(binaryInput.length, 8);
+        let binary = binaryInput.padStart(bitWidth, '0');
+        let output = '';
+
+        switch (operation) {
+          case 'left-shift':
+            output = binary.slice(positions) + '0'.repeat(positions);
+            break;
+          case 'right-shift':
+            output = '0'.repeat(positions) + binary.slice(0, -positions);
+            break;
+          case 'left-rotate':
+            output = binary.slice(positions) + binary.slice(0, positions);
+            break;
+          case 'right-rotate':
+            output = binary.slice(-positions) + binary.slice(0, -positions);
+            break;
+        }
+
+        setResult(output.slice(-bitWidth));
+      };
+
+      const handleInputChange = (value) => {
+        const filtered = value.replace(/[^01]/g, '');
+        setBinaryInput(filtered);
+      };
+
+      return React.createElement('div', { className: 'min-h-screen bg-gray-50 p-6' },
+        React.createElement('div', { className: 'max-w-2xl mx-auto' },
+          
+          // Header
+          React.createElement('header', { className: 'bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-8 rounded-3xl shadow-lg mb-6' },
+            React.createElement('h1', { className: 'text-3xl font-bold' }, 'Bitwise Shift & Rotate'),
+            React.createElement('p', { className: 'text-blue-100 mt-2' }, 'Perform bitwise operations')
+          ),
+          
+          // Binary Input
+          React.createElement('div', { className: 'bg-white rounded-2xl p-6 shadow-sm mb-4' },
+            React.createElement('label', { className: 'text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2 block' }, 'Binary Input'),
+            React.createElement('input', {
+              type: 'text',
+              value: binaryInput,
+              onChange: (e) => handleInputChange(e.target.value),
+              placeholder: '10101010',
+              className: 'w-full bg-gray-50 text-2xl font-mono font-bold text-gray-900 outline-none p-4 rounded-xl border-2 border-gray-200 focus:border-blue-500 transition-all'
+            })
+          ),
+          
+          // Operation Selector
+          React.createElement('div', { className: 'bg-white rounded-2xl p-6 shadow-sm mb-4' },
+            React.createElement('label', { className: 'text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2 block' }, 'Operation'),
+            React.createElement('div', { className: 'grid grid-cols-2 gap-2' },
+              [
+                { id: 'left-shift', label: 'Left Shift' },
+                { id: 'right-shift', label: 'Right Shift' },
+                { id: 'left-rotate', label: 'Left Rotate' },
+                { id: 'right-rotate', label: 'Right Rotate' }
+              ].map(op =>
+                React.createElement('button', {
+                  key: op.id,
+                  onClick: () => setOperation(op.id),
+                  className: `py-3 px-4 rounded-xl font-semibold transition-all ${
+                    operation === op.id
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`
+                }, op.label)
+              )
+            )
+          ),
+          
+          // Positions Input
+          React.createElement('div', { className: 'bg-white rounded-2xl p-6 shadow-sm mb-4' },
+            React.createElement('label', { className: 'text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2 block' }, 
+              `Positions: ${positions}`
+            ),
+            React.createElement('input', {
+              type: 'range',
+              min: '1',
+              max: '8',
+              value: positions,
+              onChange: (e) => setPositions(Number(e.target.value)),
+              className: 'w-full h-2 bg-blue-200 rounded-lg appearance-none cursor-pointer'
+            })
+          ),
+          
+          // Calculate Button
+          React.createElement('button', {
+            onClick: performOperation,
+            className: 'w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl font-bold text-lg shadow-md transition-all mb-4'
+          }, 'Perform Operation'),
+          
+          // Result
+          result && React.createElement('div', { className: 'bg-gradient-to-br from-blue-50 to-purple-50 rounded-2xl p-6 shadow-sm border-2 border-blue-200' },
+            React.createElement('label', { className: 'text-xs font-semibold text-blue-700 uppercase tracking-wide mb-2 block' }, 'Result'),
+            React.createElement('div', { className: 'text-3xl font-mono font-bold text-gray-900 break-all' }, result),
+            React.createElement('p', { className: 'text-sm text-gray-600 mt-2' }, 
+              `Decimal: ${parseInt(result, 2)} | Hex: 0x${parseInt(result, 2).toString(16).toUpperCase()}`
+            )
+          ),
+          
+          // Quick Presets
+          React.createElement('div', { className: 'mt-6' },
+            React.createElement('h3', { className: 'text-sm font-semibold text-gray-700 mb-3' }, 'Quick Presets'),
+            React.createElement('div', { className: 'grid grid-cols-2 gap-3' },
+              [
+                { label: '8-bit Pattern', value: '10101010' },
+                { label: 'All Ones', value: '11111111' },
+                { label: 'Single Bit', value: '00000001' },
+                { label: 'Alternating', value: '01010101' }
+              ].map((preset, idx) =>
+                React.createElement('button', {
+                  key: idx,
+                  onClick: () => handleInputChange(preset.value),
+                  className: 'bg-white hover:bg-gray-50 rounded-xl p-4 shadow-sm border border-gray-200 text-left transition-all'
+                },
+                  React.createElement('p', { className: 'text-sm font-semibold text-gray-900' }, preset.label),
+                  React.createElement('p', { className: 'text-xs font-mono text-gray-500 mt-1' }, preset.value)
+                )
+              )
+            )
+          )
+        )
+      );
+    }
+    
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(React.createElement(BitwiseOperations));
+  </script>
+</body>
+</html>
