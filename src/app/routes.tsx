@@ -10,6 +10,8 @@ import StackQueueCalculator2 from "./pages/StackQueueCalculator2";
 import ExpressionEvaluator from "./pages/ExpressionEvaluator";
 import { ScientificCalculator } from "./pages/ScientificCalculator";
 import { SubnetCalculator } from "./pages/SubnetCalculator";
+import { TreeCalculator } from "./pages/TreeCalculator";
+import { GraphCalculator } from "./pages/GraphCalc";
 
 export const router = createBrowserRouter([
   {
@@ -55,5 +57,13 @@ export const router = createBrowserRouter([
   {
     path: "/subnet-calculator",
     Component: SubnetCalculator,
+  },
+  {
+    path: "/tree-calculator",
+    Component: TreeCalculator,
+  },
+  {
+    path: "/graph-calculator", 
+    Component: GraphCalculator
   },
 ]);

@@ -7,10 +7,23 @@ import { SectionDivider } from '../components/SectionDivider';
 import { BottomNav } from '../components/BottomNav';
 import {
   Binary, Plus, ArrowLeftRight, RefreshCw, MemoryStick,
-  TrendingUp, Layers, Brackets, FlaskConical, Network,
+  TrendingUp, Layers, Brackets, FlaskConical, Network, GitBranch,
 } from 'lucide-react';
 import { useRecentlyUsed } from '../hooks/useRecentlyUsed';
 import { useFavorites } from '../hooks/useFavorites';
+import { Share2 } from 'lucide-react';
+
+// ── Calculator definition (supports multiple categories) ──────────────────────
+
+interface CalculatorDef {
+  id: string;
+  category: string;           // primary display category
+  categories?: string[];      // all categories this belongs to (for filtering)
+  title: string;
+  description: string;
+  icon: React.ComponentType<any>;
+  path: string;
+}
 
 export function Home() {
   const navigate = useNavigate();
@@ -19,8 +32,8 @@ export function Home() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
 
-  const allCalculators = [
-    // ── IT / CS ─────────────────────────────────────────────────────────────
+  const allCalculators: CalculatorDef[] = [
+    // ── IT / CS ───────────────────────────────────────────────────────────────
     {
       id: 'radix-converter',
       category: 'IT / CS',
@@ -85,7 +98,24 @@ export function Home() {
       icon: Brackets,
       path: '/expression-evaluator',
     },
-    // ── Math ─────────────────────────────────────────────────────────────────
+    {
+      id: 'tree-calculator',
+      category: 'IT / CS',
+      title: 'Tree Calculator',
+      description: 'Build Normal, BST & AVL trees — traversals, array output',
+      icon: GitBranch,
+      path: '/tree-calculator',
+    },
+    {
+      id: 'graph-calculator',
+      category: 'IT / CS',
+      title: 'Graph Calculator',
+      description: 'Create and analyze directed & undirected graphs',
+      icon: Share2,
+      path: '/graph-calculator',
+    },
+
+    // ── Math ──────────────────────────────────────────────────────────────────
     {
       id: 'scientific-calculator',
       category: 'Math',
@@ -94,10 +124,11 @@ export function Home() {
       icon: FlaskConical,
       path: '/scientific-calculator',
     },
-    // ── Networking ───────────────────────────────────────────────────────────
+    // ── Networking (also listed under IT / CS) ────────────────────────────────
     {
       id: 'subnet-calculator',
       category: 'Networking',
+      categories: ['Networking', 'IT / CS'],
       title: 'VLSM / FLSM Calculator',
       description: 'Variable & fixed-length subnet masking with host ranges',
       icon: Network,
@@ -126,7 +157,7 @@ export function Home() {
       .filter(Boolean);
   }, [recent]);
 
-  const handleCalculatorClick = (calc: (typeof allCalculators)[0]) => {
+  const handleCalculatorClick = (calc: CalculatorDef) => {
     addToRecent({
       id: calc.id,
       title: calc.title,
@@ -136,16 +167,23 @@ export function Home() {
     navigate(calc.path);
   };
 
-  // Navigate to a calculator by id (used from favorites sheet)
   const handleFavoriteClick = (id: string) => {
     const calc = allCalculators.find((c) => c.id === id);
     if (calc) handleCalculatorClick(calc);
   };
 
+  // Multi-category aware filter
+  const matchesCategory = (calc: CalculatorDef, cat: string): boolean => {
+    if (cat === 'All') return true;
+    if (calc.category === cat) return true;
+    if (calc.categories?.includes(cat)) return true;
+    return false;
+  };
+
   const filteredCalculators = useMemo(() => {
     let list = allCalculators;
     if (activeCategory !== 'All') {
-      list = list.filter((c) => c.category === activeCategory);
+      list = list.filter((c) => matchesCategory(c, activeCategory));
     }
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -172,7 +210,7 @@ export function Home() {
         !searchQuery.trim() ||
         c.title.toLowerCase().includes(q) ||
         c.description.toLowerCase().includes(q);
-      const matchesCat = activeCategory === 'All' || c.category === activeCategory;
+      const matchesCat = matchesCategory(c, activeCategory);
       return matchesSearch && matchesCat;
     });
   }, [searchQuery, activeCategory, recentCalculators]);
