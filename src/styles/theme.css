@@ -140,11 +140,6 @@
     @apply bg-background text-foreground;
   }
 
-  /**
-  * Default typography styles for HTML elements (h1-h4, p, label, button, input).
-  * These are in @layer base, so Tailwind utility classes (like text-sm, text-lg) automatically override them.
-  */
-
   html {
     font-size: var(--font-size);
   }
@@ -192,7 +187,7 @@
   }
 }
 
-/* Custom animations for micro-interactions */
+/* Custom animations and utilities */
 @layer utilities {
   @keyframes fadeIn {
     from {
@@ -239,9 +234,38 @@
     overflow: hidden;
   }
 
-  /* Hide scrollbar but keep functionality */
+  /* HIDE ALL SCROLLBARS BUT KEEP SCROLLING */
+
+  /* Firefox */
+  * {
+    scrollbar-width: none;      /* no visible scrollbar */
+  }
+
+  /* WebKit (Chrome, Edge, Safari) */
+  *::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;              /* hide scrollbar track and thumb */
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background-color: transparent;
+  }
+
+  *::-webkit-scrollbar-button {
+    width: 0;
+    height: 0;
+    display: none;              /* hide arrows */
+  }
+
+  /* Legacy utility if you ever want to re‑enable per‑element:
+     apply custom scrollbars elsewhere and leave this class as-is. */
   .scrollbar-hide {
-    -ms-overflow-style: none;
+    -ms-overflow-style: none;   /* IE/Edge legacy */
     scrollbar-width: none;
   }
 
