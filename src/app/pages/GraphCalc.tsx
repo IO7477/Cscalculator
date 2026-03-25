@@ -1,46 +1,47 @@
-// GraphCalc.tsx — Free-form physics + smart edge routing
+// GraphCalc.tsx
 // W3Schools References:
 //   Graph Theory:        https://www.w3schools.com/dsa/dsa_theory_graphs.php
 //   Implementation:      https://www.w3schools.com/dsa/dsa_data_graphs_implementation.php
 //   Traversal (BFS/DFS): https://www.w3schools.com/dsa/dsa_algo_graphs_traversal.php
-//   Cycle Detection:     https://www.w3schools.com/dsa/dsa_algo_graphs_cycledetection.php
+// GeeksforGeeks References:
+//   Kruskal's MST:       https://www.geeksforgeeks.org/dsa/kruskals-minimum-spanning-tree-algorithm-greedy-algo-2/
 
-import React, {
-  useState, useRef, useEffect, useCallback, useMemo, useLayoutEffect,
-} from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router";
 import {
-  ChevronLeft, Moon, Sun, Plus, Trash2, Play, Pause,
+  ChevronLeft, Moon, Sun, Plus, Trash2,
   RotateCcw, Copy, Check, Share2, Table, List,
 } from "lucide-react";
 import { useTheme } from "../contexts/ThemeContext";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-// SimNode lives in a ref — pixel coords, not grid cells
-interface SimNode { x: number; y: number; vx: number; vy: number; pinned: boolean; }
-
-interface Edge { from: string; to: string; weight: number; }
-
+interface Edge        { from: string; to: string; weight: number; }
 interface GraphConfig { directed: boolean; weighted: boolean; }
-
-type AlgoType = "bfs" | "dfs" | "cycle";
+type AlgoType = "bfs" | "dfs" | "kruskal";
 
 interface AlgoResult {
-  type: AlgoType;
-  order?: string[];
-  hasCycle?: boolean;
-  cycleNodes?: string[];
+  type:        AlgoType;
+  order?:      string[];
   startVertex?: string;
+  mstEdges?:   Edge[];
+  mstCost?:    number;
+  skippedEdges?: Edge[];
+  possible?:   boolean;
 }
 
-// ─── Canvas / grid constants ──────────────────────────────────────────────────
+interface AlgoResults {
+  bfs:     AlgoResult | null;
+  dfs:     AlgoResult | null;
+  kruskal: AlgoResult | null;
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
 
 const NODE_R = 22;
-const CELL   = 72;   // grid cell size (visual reference only, no snapping)
+const CELL   = 72;
 const PAD    = NODE_R + 12;
 
-// Grid grows with vertex count — purely visual, vertices float freely
 function gridDims(n: number) {
   let cols: number, rows: number;
   if      (n <= 3)  { cols = 4; rows = 4; }
@@ -49,262 +50,62 @@ function gridDims(n: number) {
   else if (n <= 12) { cols = 8; rows = 7; }
   else              { cols = Math.ceil(Math.sqrt(n)) + 3; rows = Math.max(cols - 1, cols); }
   const W = cols * CELL, H = rows * CELL;
-  return { cols, rows, W, H, cx: W / 2, cy: H / 2 };
+  return { cols, rows, W, H };
 }
 
-// ─── Force simulation ─────────────────────────────────────────────────────────
+// ─── Static layout — circle arrangement ──────────────────────────────────────
 
-const K_REP   = 9000;   // node-node repulsion
-const K_SPR   = 0.042;  // spring attraction along edges
-const K_GRAV  = 0.012;  // pull toward canvas center
-const K_ISO   = 0.055;  // stronger pull for isolated (degree-0) nodes
-const DAMP    = 0.76;
-const MAX_V   = 8;
-const REST_L  = 120;    // spring rest length (px)
-const MIN_SEP = NODE_R * 2 + 8;
-
-function tickSim(
-  nodes: Map<string, SimNode>,
-  edges: Edge[],
-  W: number, H: number, cx: number, cy: number
-): number {
-  const verts = Array.from(nodes.values());
-  // Degree map for isolated-node detection
-  const deg = new Map<string, number>();
-  for (const [id] of nodes) deg.set(id, 0);
-  for (const e of edges) {
-    if (e.from !== e.to) {
-      deg.set(e.from, (deg.get(e.from) ?? 0) + 1);
-      deg.set(e.to,   (deg.get(e.to)   ?? 0) + 1);
-    }
+function staticLayout(vids: string[], W: number, H: number) {
+  const positions = new Map<string, { x: number; y: number }>();
+  const n = vids.length;
+  if (n === 0) return positions;
+  const margin = NODE_R + 20;
+  if (n === 1) {
+    positions.set(vids[0], { x: W / 2, y: H / 2 });
+    return positions;
   }
-
-  // 1. Repulsion between all pairs
-  for (let i = 0; i < verts.length; i++) {
-    for (let j = i + 1; j < verts.length; j++) {
-      const a = verts[i], b = verts[j];
-      const dx = b.x - a.x, dy = b.y - a.y;
-      const d2 = Math.max(dx * dx + dy * dy, 1);
-      const d  = Math.sqrt(d2);
-      const f  = K_REP / d2;
-      const fx = (dx / d) * f, fy = (dy / d) * f;
-      if (!a.pinned) { a.vx -= fx; a.vy -= fy; }
-      if (!b.pinned) { b.vx += fx; b.vy += fy; }
-    }
-  }
-
-  // 2. Spring along edges
-  for (const e of edges) {
-    if (e.from === e.to) continue;
-    const a = nodes.get(e.from), b = nodes.get(e.to);
-    if (!a || !b) continue;
-    const dx = b.x - a.x, dy = b.y - a.y;
-    const d  = Math.sqrt(dx * dx + dy * dy) || 1;
-    const f  = K_SPR * (d - REST_L);
-    const fx = (dx / d) * f, fy = (dy / d) * f;
-    if (!a.pinned) { a.vx += fx; a.vy += fy; }
-    if (!b.pinned) { b.vx -= fx; b.vy -= fy; }
-  }
-
-  // 3. Gravity + integrate + boundary
-  let maxV = 0;
-  for (const [id, v] of nodes) {
-    if (v.pinned) continue;
-    const g = (deg.get(id) ?? 0) === 0 ? K_ISO : K_GRAV;
-    v.vx += g * (cx - v.x);
-    v.vy += g * (cy - v.y);
-    v.vx *= DAMP; v.vy *= DAMP;
-    const spd = Math.sqrt(v.vx * v.vx + v.vy * v.vy);
-    if (spd > MAX_V) { v.vx *= MAX_V / spd; v.vy *= MAX_V / spd; }
-    v.x += v.vx; v.y += v.vy;
-    v.x = Math.max(PAD, Math.min(W - PAD, v.x));
-    v.y = Math.max(PAD, Math.min(H - PAD, v.y));
-    maxV = Math.max(maxV, spd);
-  }
-
-  // 4. Hard separation — prevent overlap
-  for (let i = 0; i < verts.length; i++) {
-    for (let j = i + 1; j < verts.length; j++) {
-      const a = verts[i], b = verts[j];
-      const dx = b.x - a.x, dy = b.y - a.y;
-      const d  = Math.sqrt(dx * dx + dy * dy) || 1;
-      if (d < MIN_SEP) {
-        const ov = (MIN_SEP - d) / 2;
-        const ux = dx / d, uy = dy / d;
-        if (!a.pinned) { a.x -= ux * ov; a.y -= uy * ov; }
-        if (!b.pinned) { b.x += ux * ov; b.y += uy * ov; }
-      }
-    }
-  }
-  return maxV;
+  const radius = Math.min(W, H) / 2 - margin - 10;
+  vids.forEach((id, i) => {
+    const angle = (2 * Math.PI * i / n) - Math.PI / 2;
+    positions.set(id, {
+      x: W / 2 + radius * Math.cos(angle),
+      y: H / 2 + radius * Math.sin(angle),
+    });
+  });
+  return positions;
 }
 
-// ─── Edge routing ─────────────────────────────────────────────────────────────
-// Each edge automatically decides: straight when clear, curved to avoid crossings.
-// "from" and "to" are live pixel positions from the simulation.
+// ─── Static edge routing ──────────────────────────────────────────────────────
 
-interface RoutedEdge { edge: Edge; d: string; midX: number; midY: number; }
-
-function segsCross(
-  ax: number, ay: number, bx: number, by: number,
-  cx: number, cy: number, dx: number, dy: number
-): boolean {
-  const det = (bx - ax) * (dy - cy) - (by - ay) * (dx - cx);
-  if (Math.abs(det) < 1e-9) return false;
-  const t = ((cx - ax) * (dy - cy) - (cy - ay) * (dx - cx)) / det;
-  const u = ((cx - ax) * (by - ay) - (cy - ay) * (bx - ax)) / det;
-  const ε = 0.05;
-  return t > ε && t < 1 - ε && u > ε && u < 1 - ε;
-}
-
-// Sample quadratic bezier into N segments for intersection testing
-function sampleQuad(
-  sx: number, sy: number, cpx: number, cpy: number, ex: number, ey: number,
-  n = 16
-): Array<[number, number]> {
-  const pts: Array<[number, number]> = [];
-  for (let i = 0; i <= n; i++) {
-    const t = i / n, mt = 1 - t;
-    pts.push([
-      mt * mt * sx + 2 * mt * t * cpx + t * t * ex,
-      mt * mt * sy + 2 * mt * t * cpy + t * t * ey,
-    ]);
+function staticRouteEdge(
+  from:      { x: number; y: number },
+  to:        { x: number; y: number },
+  directed:  boolean,
+  hasBoth:   boolean,
+  isSmaller: boolean,
+): { d: string; midX: number; midY: number } {
+  const dx = to.x - from.x, dy = to.y - from.y;
+  const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+  const ux = dx / dist, uy = dy / dist, px = -uy, py = ux;
+  const arrPad = directed ? 9 : 0;
+  const sx = from.x + ux * NODE_R,            sy = from.y + uy * NODE_R;
+  const ex = to.x   - ux * (NODE_R + arrPad), ey = to.y   - uy * (NODE_R + arrPad);
+  const mx = (sx + ex) / 2,                   my = (sy + ey) / 2;
+  if (hasBoth) {
+    const sign = isSmaller ? 1 : -1;
+    const cpx = mx + px * 38 * sign, cpy = my + py * 38 * sign;
+    return {
+      d: `M ${sx.toFixed(1)} ${sy.toFixed(1)} Q ${cpx.toFixed(1)} ${cpy.toFixed(1)} ${ex.toFixed(1)} ${ey.toFixed(1)}`,
+      midX: cpx, midY: cpy,
+    };
   }
-  return pts;
+  return {
+    d: `M ${sx.toFixed(1)} ${sy.toFixed(1)} L ${ex.toFixed(1)} ${ey.toFixed(1)}`,
+    midX: mx, midY: my - 8,
+  };
 }
 
-function curvesCross(
-  a: Array<[number, number]>,
-  b: Array<[number, number]>
-): boolean {
-  for (let i = 0; i < a.length - 1; i++) {
-    for (let j = 0; j < b.length - 1; j++) {
-      if (segsCross(a[i][0], a[i][1], a[i+1][0], a[i+1][1],
-                    b[j][0], b[j][1], b[j+1][0], b[j+1][1])) return true;
-    }
-  }
-  return false;
-}
-
-// Build a stable hash for an edge key (consistent sign assignment)
-function edgeHash(id1: string, id2: string): number {
-  const key = [id1, id2].sort().join('\0');
-  let h = 0;
-  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) & 0xffff;
-  return h;
-}
-
-function routeEdges(
-  edges: Edge[],
-  nodes: Map<string, SimNode>,
-  directed: boolean,
-  W: number
-): RoutedEdge[] {
-  const routed: RoutedEdge[] = [];
-  // Track sampled curves for intersection tests
-  const sampledSoFar: Array<[string, string, Array<[number, number]>]> = [];
-
-  for (const edge of edges) {
-    const a = nodes.get(edge.from), b = nodes.get(edge.to);
-    if (!a || !b) continue;
-
-    // ── Self-loop ────────────────────────────────────────────────────────────
-    if (edge.from === edge.to) {
-      const lx = a.x, ly = a.y;
-      routed.push({
-        edge,
-        d: `M ${lx - 10} ${ly - NODE_R} a 14 12 0 1 1 20 0`,
-        midX: lx + 17,
-        midY: ly - NODE_R - 14,
-      });
-      continue;
-    }
-
-    const dx = b.x - a.x, dy = b.y - a.y;
-    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-    const ux = dx / dist, uy = dy / dist;
-    const px = -uy, py = ux;   // perpendicular
-
-    // Endpoint trim (node radius + arrow gap)
-    const arrPad = directed ? 9 : 0;
-    const sx = a.x + ux * NODE_R, sy = a.y + uy * NODE_R;
-    const ex = b.x - ux * (NODE_R + arrPad), ey = b.y - uy * (NODE_R + arrPad);
-    const mx = (sx + ex) / 2, my = (sy + ey) / 2;
-
-    // Stable base sign so edges don't flip randomly each render
-    const h = edgeHash(edge.from, edge.to);
-    const baseSign = h & 1 ? 1 : -1;
-
-    // Check if reverse edge exists (directed bidirectional — must separate)
-    const hasReverse = directed && edges.some(e => e.from === edge.to && e.to === edge.from);
-
-    // ── Attempt straight first (mag = 0), then increasingly curved ──────────
-    // Curvature search: 0 means straight (used only if clear and no reverse)
-    const mags = hasReverse
-      ? [32, 50, 70, 95, 125, 160]        // always curve for bidirectional
-      : [0, 22, 38, 56, 78, 104, 135, 170]; // try straight first
-
-    let chosen: RoutedEdge | null = null;
-
-    outer:
-    for (const mag of mags) {
-      for (const sign of [baseSign, -baseSign]) {
-        const cpx = mx + px * mag * sign;
-        const cpy = my + py * mag * sign;
-
-        // For directed reverse pair, shift sign consistently
-        const finalSign = hasReverse
-          ? (edge.from < edge.to ? 1 : -1)
-          : sign;
-        const fcpx = mag === 0 ? mx : mx + px * mag * finalSign;
-        const fcpy = mag === 0 ? my : my + py * mag * finalSign;
-
-        // Build straight or quadratic path string
-        const pathStr = mag === 0
-          ? `M ${sx.toFixed(1)} ${sy.toFixed(1)} L ${ex.toFixed(1)} ${ey.toFixed(1)}`
-          : `M ${sx.toFixed(1)} ${sy.toFixed(1)} Q ${fcpx.toFixed(1)} ${fcpy.toFixed(1)} ${ex.toFixed(1)} ${ey.toFixed(1)}`;
-
-        // Sample for intersection testing
-        const sampled: Array<[number, number]> = mag === 0
-          ? [[sx, sy], [ex, ey]]
-          : sampleQuad(sx, sy, fcpx, fcpy, ex, ey);
-
-        // Check against all previously routed edges
-        let clear = true;
-        for (const [prevFrom, prevTo, prevSampled] of sampledSoFar) {
-          // Skip edges that share a vertex — they're always incident
-          if (prevFrom === edge.from || prevFrom === edge.to ||
-              prevTo   === edge.from || prevTo   === edge.to) continue;
-          if (curvesCross(sampled, prevSampled)) { clear = false; break; }
-        }
-
-        if (clear) {
-          const midX = mag === 0 ? mx : fcpx;
-          const midY = mag === 0 ? my - 8 : fcpy - 5;
-          chosen = { edge, d: pathStr, midX, midY };
-          sampledSoFar.push([edge.from, edge.to, sampled]);
-          break outer;
-        }
-        if (mag === 0) break; // only one try for straight (sign irrelevant)
-      }
-    }
-
-    // Fallback: giant arc outside canvas
-    if (!chosen) {
-      const bigMag = W * 0.7;
-      const fcpx = mx + px * bigMag * baseSign;
-      const fcpy = my + py * bigMag * baseSign;
-      const pathStr = `M ${sx.toFixed(1)} ${sy.toFixed(1)} Q ${fcpx.toFixed(1)} ${fcpy.toFixed(1)} ${ex.toFixed(1)} ${ey.toFixed(1)}`;
-      chosen = { edge, d: pathStr, midX: fcpx, midY: fcpy - 5 };
-      sampledSoFar.push([edge.from, edge.to, sampleQuad(sx, sy, fcpx, fcpy, ex, ey)]);
-    }
-
-    routed.push(chosen);
-  }
-  return routed;
-}
-
-// ─── Graph algorithms (W3Schools) ─────────────────────────────────────────────
+// ─── Graph algorithms ─────────────────────────────────────────────────────────
 
 function buildAdj(vids: string[], edges: Edge[], directed: boolean) {
   const adj = new Map<string, string[]>();
@@ -331,66 +132,70 @@ function bfs(adj: Map<string, string[]>, vids: string[], start: string) {
 
 function dfs(adj: Map<string, string[]>, vids: string[], start: string) {
   const vis = new Set<string>(), order: string[] = [];
-  const go = (v: string) => { vis.add(v); order.push(v); for (const nb of adj.get(v) ?? []) if (!vis.has(nb)) go(nb); };
+  const go = (v: string) => {
+    vis.add(v); order.push(v);
+    for (const nb of adj.get(v) ?? []) if (!vis.has(nb)) go(nb);
+  };
   go(start);
   for (const v of vids) if (!vis.has(v)) go(v);
   return order;
 }
 
-function bfsCycleUndir(vids: string[], adj: Map<string, string[]>) {
-  const vis = new Set<string>();
-  for (const src of vids) {
-    if (vis.has(src)) continue;
-    const q: [string, string|null][] = [[src, null]]; vis.add(src);
-    while (q.length) {
-      const [v, par] = q.shift()!;
-      for (const nb of adj.get(v) ?? []) {
-        if (!vis.has(nb)) { vis.add(nb); q.push([nb, v]); }
-        else if (nb !== par) return { hasCycle: true, cycleNodes: [v, nb] };
-      }
-    }
+// ─── Kruskal / DSU ────────────────────────────────────────────────────────────
+
+class DSU {
+  private parent: Map<string, string>;
+  private rank:   Map<string, number>;
+  constructor(vids: string[]) {
+    this.parent = new Map(vids.map(v => [v, v]));
+    this.rank   = new Map(vids.map(v => [v, 0]));
   }
-  return { hasCycle: false, cycleNodes: [] as string[] };
+  find(x: string): string {
+    if (this.parent.get(x) !== x) this.parent.set(x, this.find(this.parent.get(x)!));
+    return this.parent.get(x)!;
+  }
+  union(x: string, y: string): boolean {
+    const rx = this.find(x), ry = this.find(y);
+    if (rx === ry) return false;
+    const rankX = this.rank.get(rx)!, rankY = this.rank.get(ry)!;
+    if (rankX < rankY)      this.parent.set(rx, ry);
+    else if (rankX > rankY) this.parent.set(ry, rx);
+    else { this.parent.set(ry, rx); this.rank.set(rx, rankX + 1); }
+    return true;
+  }
 }
 
-function bfsCycleDir(vids: string[], adj: Map<string, string[]>) {
-  const inDeg = new Map(vids.map(v => [v, 0]));
-  for (const v of vids) for (const nb of adj.get(v) ?? []) inDeg.set(nb, (inDeg.get(nb) ?? 0) + 1);
-  const q = vids.filter(v => inDeg.get(v) === 0); let proc = 0;
-  while (q.length) {
-    const v = q.shift()!; proc++;
-    for (const nb of adj.get(v) ?? []) {
-      const d = (inDeg.get(nb) ?? 1) - 1; inDeg.set(nb, d);
-      if (d === 0) q.push(nb);
+function kruskal(vids: string[], edges: Edge[]) {
+  const sorted = [...edges].sort((a, b) => a.weight - b.weight);
+  const dsu = new DSU(vids);
+  const mstEdges: Edge[] = [], skippedEdges: Edge[] = [];
+  let mstCost = 0;
+  for (const e of sorted) {
+    if (e.from === e.to) continue;
+    if (dsu.union(e.from, e.to)) {
+      mstEdges.push(e); mstCost += e.weight;
+      if (mstEdges.length === vids.length - 1) break;
+    } else {
+      skippedEdges.push(e);
     }
   }
-  return { hasCycle: proc < vids.length, cycleNodes: vids.filter(v => (inDeg.get(v) ?? 0) > 0) };
+  return { mstEdges, skippedEdges, mstCost, possible: mstEdges.length === vids.length - 1 };
 }
 
-// ─── Grid background (graphing paper, no snap) ────────────────────────────────
+// ─── Grid background ──────────────────────────────────────────────────────────
 
 function GridBg({ W, H, isDark }: { W: number; H: number; isDark: boolean }) {
   const lineClr = isDark ? "rgba(255,255,255,0.045)" : "rgba(30,50,120,0.065)";
   const dotClr  = isDark ? "rgba(255,255,255,0.16)"  : "rgba(30,50,120,0.18)";
   const els: React.ReactNode[] = [];
-  for (let x = 0; x <= W; x += CELL) els.push(<line key={`v${x}`} x1={x} y1={0} x2={x} y2={H} stroke={lineClr} strokeWidth={0.6}/>);
-  for (let y = 0; y <= H; y += CELL) els.push(<line key={`h${y}`} x1={0} y1={y} x2={W} y2={y} stroke={lineClr} strokeWidth={0.6}/>);
+  for (let x = 0; x <= W; x += CELL)
+    els.push(<line key={`v${x}`} x1={x} y1={0} x2={x} y2={H} stroke={lineClr} strokeWidth={0.6}/>);
+  for (let y = 0; y <= H; y += CELL)
+    els.push(<line key={`h${y}`} x1={0} y1={y} x2={W} y2={y} stroke={lineClr} strokeWidth={0.6}/>);
   for (let x = 0; x <= W; x += CELL)
     for (let y = 0; y <= H; y += CELL)
       els.push(<circle key={`d${x},${y}`} cx={x} cy={y} r={1.5} fill={dotClr}/>);
   return <g>{els}</g>;
-}
-
-// ─── Arrow defs ────────────────────────────────────────────────────────────────
-
-function Defs({ ec }: { ec: string }) {
-  return (
-    <defs>
-      <marker id="arr"      markerWidth="9" markerHeight="9" refX="7" refY="3.5" orient="auto"><path d="M0,0 L0,7 L9,3.5 z" fill={ec}/></marker>
-      <marker id="arr-vis"  markerWidth="9" markerHeight="9" refX="7" refY="3.5" orient="auto"><path d="M0,0 L0,7 L9,3.5 z" fill="#facc15"/></marker>
-      <marker id="arr-cyc"  markerWidth="9" markerHeight="9" refX="7" refY="3.5" orient="auto"><path d="M0,0 L0,7 L9,3.5 z" fill="#ef4444"/></marker>
-    </defs>
-  );
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -399,155 +204,81 @@ export function GraphCalculator() {
   const navigate = useNavigate();
   const { isDark, toggleTheme } = useTheme();
 
-  // ── Graph data (logical, no positions) ──────────────────────────────────────
+  // ── Graph data ──────────────────────────────────────────────────────────────
   const [vertexIds, setVertexIds] = useState<string[]>([]);
-  const [edges, setEdges] = useState<Edge[]>([]);
-  const [config, setConfig] = useState<GraphConfig>({ directed: false, weighted: false });
+  const [edges,     setEdges]     = useState<Edge[]>([]);
+  const [config,    setConfig]    = useState<GraphConfig>({ directed: false, weighted: false });
 
   // ── UI state ─────────────────────────────────────────────────────────────────
-  const [vInput,  setVInput]  = useState("");
-  const [eFr,     setEFr]     = useState("");
-  const [eTo,     setETo]     = useState("");
-  const [eWt,     setEWt]     = useState("1");
-  const [error,   setError]   = useState<string|null>(null);
-  const [selV,    setSelV]    = useState("");
+  const [vInput, setVInput] = useState("");
+  const [eFr,    setEFr]    = useState("");
+  const [eTo,    setETo]    = useState("");
+  const [eWt,    setEWt]    = useState("1");
+  const [error,  setError]  = useState<string | null>(null);
+  const [selV,   setSelV]   = useState("");
   const [showMat, setShowMat] = useState(false);
   const [copied,  setCopied]  = useState(false);
 
   // ── Algorithm state ───────────────────────────────────────────────────────────
-  const [algo,    setAlgo]    = useState<AlgoResult|null>(null);
-  const [step,    setStep]    = useState(-1);
-  const [playing, setPlaying] = useState(false);
-  const playTimer = useRef<ReturnType<typeof setInterval>|null>(null);
+  const [algoResults,   setAlgoResults]   = useState<AlgoResults>({ bfs: null, dfs: null, kruskal: null });
+  const [activeAlgo,    setActiveAlgo]    = useState<AlgoType>("bfs");
+  const [algoStart,     setAlgoStart]     = useState("");
+  const [neighborOrder, setNeighborOrder] = useState<"lvf" | "hvf">("lvf");
 
-  // ── Physics simulation (lives entirely in refs — no React state) ─────────────
-  const simRef = useRef<Map<string, SimNode>>(new Map());
-  const [renderTick, setRenderTick] = useState(0);  // bumped to trigger re-render
-  const rafRef  = useRef<number>(0);
-  const dragRef = useRef<{ id: string; rect: DOMRect } | null>(null);
-  const svgWrapRef = useRef<HTMLDivElement>(null);
-
-  // Canvas dimensions (visual only — vertices are NOT constrained to grid)
-  const { W, H, cx, cy, cols, rows } = useMemo(
-    () => gridDims(vertexIds.length),
-    [vertexIds.length]
+  // ── Adjacency ─────────────────────────────────────────────────────────────────
+  const adj = useMemo(
+    () => buildAdj(vertexIds, edges, config.directed),
+    [vertexIds, edges, config.directed],
   );
 
-  // ── Init / sync sim when vertex list changes ──────────────────────────────────
-  useEffect(() => {
-    const sim = simRef.current;
-    // Remove deleted
-    for (const k of sim.keys()) if (!vertexIds.includes(k)) sim.delete(k);
-    // Add new — spawn near canvas center with jitter, NOT on grid intersections
-    for (const id of vertexIds) {
-      if (sim.has(id)) continue;
-      const angle = Math.random() * Math.PI * 2;
-      const r     = Math.min(W, H) * 0.25 * (0.5 + Math.random() * 0.5);
-      sim.set(id, {
-        x: cx + r * Math.cos(angle) + (Math.random() - 0.5) * 20,
-        y: cy + r * Math.sin(angle) + (Math.random() - 0.5) * 20,
-        vx: (Math.random() - 0.5) * 4,
-        vy: (Math.random() - 0.5) * 4,
-        pinned: false,
+  const sortedAdj = useMemo(() => {
+    const sorted = new Map<string, string[]>();
+    for (const [v, neighbors] of adj) {
+      const s = [...neighbors].sort((a, b) => {
+        if (config.weighted) {
+          const wa = edges.find(e => e.from === v && e.to === a)?.weight ?? 0;
+          const wb = edges.find(e => e.from === v && e.to === b)?.weight ?? 0;
+          return neighborOrder === "lvf" ? wa - wb : wb - wa;
+        }
+        return neighborOrder === "lvf" ? a.localeCompare(b) : b.localeCompare(a);
       });
+      sorted.set(v, s);
     }
-    kickSim();
-  }, [vertexIds, W, H, cx, cy]);
+    return sorted;
+  }, [adj, edges, config.weighted, neighborOrder]);
 
-  useEffect(() => {
-    // Re-kick when edges change (spring forces change)
-    for (const v of simRef.current.values()) {
-      v.vx += (Math.random() - 0.5) * 3;
-      v.vy += (Math.random() - 0.5) * 3;
-    }
-    kickSim();
-  }, [edges.length]);
+  // ── Auto-run algorithms ───────────────────────────────────────────────────────
+  React.useEffect(() => {
+    if (!vertexIds.length) { setAlgoResults({ bfs: null, dfs: null, kruskal: null }); return; }
+    const start = algoStart || selV || vertexIds[0];
+    setAlgoResults({
+      bfs:     { type: "bfs",     order: bfs(sortedAdj, vertexIds, start), startVertex: start },
+      dfs:     { type: "dfs",     order: dfs(sortedAdj, vertexIds, start), startVertex: start },
+      kruskal: config.directed
+        ? { type: "kruskal", possible: false, mstEdges: [], skippedEdges: [], mstCost: 0 }
+        : { type: "kruskal", ...kruskal(vertexIds, edges) },
+    });
+  }, [vertexIds, edges, sortedAdj, algoStart, selV, config.directed]);
 
-  function kickSim() {
-    cancelAnimationFrame(rafRef.current);
-    let warm = 60;
-    function tick() {
-      const steps = warm-- > 0 ? 5 : 2;
-      let mv = 0;
-      for (let s = 0; s < steps; s++) mv = tickSim(simRef.current, edges, W, H, cx, cy);
-      setRenderTick(t => t + 1);
-      if (mv > 0.07) rafRef.current = requestAnimationFrame(tick);
-    }
-    rafRef.current = requestAnimationFrame(tick);
-  }
+  const activeResult = algoResults[activeAlgo] ?? null;
 
-  useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
-
-  // Sync ref positions into state snapshot each tick (for rendering)
-  const [snapshots, setSnapshots] = useState<Map<string, {x:number;y:number}>>(new Map());
-  useLayoutEffect(() => {
-    const s = new Map<string, {x:number;y:number}>();
-    for (const [id, n] of simRef.current) s.set(id, { x: n.x, y: n.y });
-    setSnapshots(new Map(s));
-  }, [renderTick]);
-
-  // ── Drag — FREE FORM, no grid snapping ───────────────────────────────────────
-  const onPtrDown = useCallback((id: string, e: React.PointerEvent) => {
-    e.stopPropagation();
-    (e.currentTarget as Element).setPointerCapture(e.pointerId);
-    if (!svgWrapRef.current) return;
-    dragRef.current = { id, rect: svgWrapRef.current.getBoundingClientRect() };
-    const node = simRef.current.get(id);
-    if (node) { node.pinned = true; node.vx = 0; node.vy = 0; }
-  }, []);
-
-  const onPtrMove = useCallback((e: React.PointerEvent) => {
-    if (!dragRef.current) return;
-    const { id, rect } = dragRef.current;
-    const node = simRef.current.get(id);
-    if (!node) return;
-    // Map pointer to SVG space — no rounding, no snapping
-    const scaleX = W / rect.width, scaleY = H / rect.height;
-    node.x = Math.max(PAD, Math.min(W - PAD, (e.clientX - rect.left) * scaleX));
-    node.y = Math.max(PAD, Math.min(H - PAD, (e.clientY - rect.top)  * scaleY));
-    node.vx = 0; node.vy = 0;
-    setRenderTick(t => t + 1);
-  }, [W, H]);
-
-  const onPtrUp = useCallback(() => {
-    if (!dragRef.current) return;
-    const node = simRef.current.get(dragRef.current.id);
-    if (node) { node.pinned = false; node.vx = 0; node.vy = 0; }
-    dragRef.current = null;
-    kickSim();
-  }, [edges]);
-
-  // ── Edge routing (recomputed from live positions each render) ─────────────────
-  const routed = useMemo(() => {
-    // Build a position map from the latest snapshot
-    const posMap = new Map<string, SimNode>();
-    for (const [id, pos] of snapshots) {
-      const node = simRef.current.get(id);
-      posMap.set(id, node ?? { x: pos.x, y: pos.y, vx: 0, vy: 0, pinned: false });
-    }
-    return routeEdges(edges, posMap, config.directed, W);
-  }, [snapshots, edges, config.directed, W]);
-
-  // ── Graph operations ───────────────────────────────────────────────────────────
+  // ── Graph operations ──────────────────────────────────────────────────────────
   const addVertices = useCallback(() => {
     const tokens = vInput.split(/[\s,;]+/).map(s => s.trim()).filter(Boolean);
     if (!tokens.length) return;
     const existing = new Set(vertexIds);
-    const dupes = tokens.filter(t => existing.has(t));
-    const fresh = tokens.filter(t => !existing.has(t));
+    const dupes = tokens.filter(t => existing.has(t)), fresh = tokens.filter(t => !existing.has(t));
     if (!fresh.length) { setError(`Already exists: ${dupes.join(", ")}`); return; }
     setError(dupes.length ? `Skipped: ${dupes.join(", ")}` : null);
-    setVertexIds(prev => [...prev, ...fresh]);
-    setVInput("");
+    setVertexIds(prev => [...prev, ...fresh]); setVInput("");
   }, [vInput, vertexIds]);
 
   const removeVertex = useCallback((id: string) => {
-    simRef.current.delete(id);
     setVertexIds(prev => prev.filter(v => v !== id));
     setEdges(prev => prev.filter(e => e.from !== id && e.to !== id));
-    if (selV === id) setSelV("");
-    setAlgo(null); setStep(-1);
-  }, [selV]);
+    if (selV === id)      setSelV("");
+    if (algoStart === id) setAlgoStart("");
+  }, [selV, algoStart]);
 
   const addEdge = useCallback(() => {
     const f = eFr.trim(), t = eTo.trim();
@@ -555,144 +286,181 @@ export function GraphCalculator() {
     const vset = new Set(vertexIds);
     if (!vset.has(f) || !vset.has(t)) { setError("Vertex not found"); return; }
     const dup = edges.some(e =>
-      (e.from === f && e.to === t) ||
-      (!config.directed && e.from === t && e.to === f)
-    );
-    if (dup) { setError(`Edge ${f}${config.directed?"→":"—"}${t} already exists`); return; }
+      (e.from === f && e.to === t) || (!config.directed && e.from === t && e.to === f));
+    if (dup) { setError(`Edge ${f}${config.directed ? "→" : "—"}${t} already exists`); return; }
     setError(null);
     setEdges(prev => [...prev, { from: f, to: t, weight: Number(eWt) || 1 }]);
-    setAlgo(null); setStep(-1);
   }, [eFr, eTo, eWt, vertexIds, edges, config.directed]);
 
   const removeEdge = useCallback((from: string, to: string) => {
     setEdges(prev => prev.filter(e => !(e.from === from && e.to === to)));
-    setAlgo(null); setStep(-1);
-  }, []);
-
-  // ── Algorithms ─────────────────────────────────────────────────────────────────
-  const adj = useMemo(
-    () => buildAdj(vertexIds, edges, config.directed),
-    [vertexIds, edges, config.directed]
-  );
-
-  const runAlgo = useCallback((type: AlgoType) => {
-    if (!vertexIds.length) return;
-    if (playTimer.current) clearInterval(playTimer.current);
-    setPlaying(false); setStep(-1);
-    const start = selV || vertexIds[0];
-    if (type === "bfs")   setAlgo({ type, order: bfs(adj, vertexIds, start), startVertex: start });
-    else if (type === "dfs") setAlgo({ type, order: dfs(adj, vertexIds, start), startVertex: start });
-    else {
-      const res = config.directed ? bfsCycleDir(vertexIds, adj) : bfsCycleUndir(vertexIds, adj);
-      setAlgo({ type: "cycle", ...res });
-    }
-  }, [vertexIds, adj, selV, config.directed]);
-
-  const playAlgo = useCallback(() => {
-    if (!algo?.order?.length) return;
-    setStep(0); setPlaying(true); let s = 0;
-    playTimer.current = setInterval(() => {
-      s++;
-      if (s >= (algo.order?.length ?? 0)) {
-        clearInterval(playTimer.current!); setPlaying(false);
-        setStep((algo.order?.length ?? 1) - 1);
-      } else setStep(s);
-    }, 650);
-  }, [algo]);
-
-  const stopAlgo = useCallback(() => {
-    if (playTimer.current) clearInterval(playTimer.current);
-    setPlaying(false);
   }, []);
 
   const clearAll = useCallback(() => {
-    simRef.current.clear();
-    setVertexIds([]); setEdges([]); setSelV(""); setAlgo(null); setStep(-1);
-    if (playTimer.current) clearInterval(playTimer.current);
-    setPlaying(false);
+    setVertexIds([]); setEdges([]); setSelV(""); setAlgoStart("");
+    setAlgoResults({ bfs: null, dfs: null, kruskal: null });
   }, []);
 
-  // ── Copy ─────────────────────────────────────────────────────────────────────
   const copyAll = useCallback(async () => {
     const lines = [
-      `Graph (${config.directed?"Directed":"Undirected"}${config.weighted?", Weighted":""})`,
+      `Graph (${config.directed ? "Directed" : "Undirected"}${config.weighted ? ", Weighted" : ""})`,
       `Vertices: ${vertexIds.join(", ")}`,
-      `Edges: ${edges.map(e=>config.weighted?`${e.from}→${e.to}(${e.weight})`:`${e.from}→${e.to}`).join(", ")}`,
+      `Edges: ${edges.map(e => config.weighted ? `${e.from}→${e.to}(${e.weight})` : `${e.from}→${e.to}`).join(", ")}`,
       "", "Adjacency List:",
-      ...vertexIds.map(v=>`  ${v}: [${adj.get(v)?.join(", ") || "—"}]`),
-    ];
-    if (algo) {
-      lines.push("");
-      if (algo.type !== "cycle") lines.push(`${algo.type.toUpperCase()} from ${algo.startVertex}: ${algo.order?.join(" → ")}`);
-      else lines.push(`Cycle (BFS): ${algo.hasCycle ? `YES — ${algo.cycleNodes?.join(", ")}` : "No cycle"}`);
-    }
+      ...vertexIds.map(v => `  ${v}: [${adj.get(v)?.join(", ") || "—"}]`),
+      "",
+      algoResults.bfs ? `BFS from ${algoResults.bfs.startVertex}: [${algoResults.bfs.order?.join(", ")}]` : "",
+      algoResults.dfs ? `DFS from ${algoResults.dfs.startVertex}: [${algoResults.dfs.order?.join(", ")}]` : "",
+      algoResults.kruskal?.possible
+        ? `Kruskal MST cost: ${algoResults.kruskal.mstCost} — edges: ${algoResults.kruskal.mstEdges?.map(e => `${e.from}—${e.to}(${e.weight})`).join(", ")}`
+        : "",
+    ].filter(l => l !== "");
     await navigator.clipboard.writeText(lines.join("\n"));
     setCopied(true); setTimeout(() => setCopied(false), 2000);
-  }, [vertexIds, edges, config, adj, algo]);
+  }, [vertexIds, edges, config, adj, algoResults]);
+
+  // ── Presets ───────────────────────────────────────────────────────────────────
+  const applyPreset = useCallback((p: {
+    vids: string[]; edgs: [string, string][]; directed: boolean;
+    weighted: boolean; weights?: number[];
+  }) => {
+    setVertexIds(p.vids);
+    setEdges(p.edgs.map(([from, to], i) => ({ from, to, weight: p.weights?.[i] ?? 1 })));
+    setConfig({ directed: p.directed, weighted: p.weighted });
+    setSelV(p.vids[0] ?? ""); setAlgoStart("");
+    setAlgoResults({ bfs: null, dfs: null, kruskal: null });
+  }, []);
+
+  const presets = [
+    { label: "Simple cycle",   directed: false, weighted: false, vids: ["A","B","C","D"],        edgs: [["A","B"],["B","C"],["C","D"],["D","A"]] as [string,string][] },
+    { label: "Directed DAG",   directed: true,  weighted: false, vids: ["A","B","C","D","E"],    edgs: [["A","B"],["A","C"],["B","D"],["C","D"],["D","E"]] as [string,string][] },
+    { label: "Weighted MST",   directed: false, weighted: true,  vids: ["A","B","C","D","E"],    edgs: [["A","B"],["A","C"],["B","C"],["B","D"],["C","E"],["D","E"]] as [string,string][], weights: [4,2,1,5,8,2] },
+    { label: "Directed cycle", directed: true,  weighted: false, vids: ["A","B","C","D"],        edgs: [["A","B"],["B","C"],["C","D"],["D","B"]] as [string,string][] },
+    { label: "Disconnected",   directed: false, weighted: false, vids: ["A","B","C","D","E","F"], edgs: [["A","B"],["B","C"],["D","E"]] as [string,string][] },
+  ];
 
   // ── Adjacency matrix ──────────────────────────────────────────────────────────
   const adjMat = useMemo(() => {
-    const idx = new Map(vertexIds.map((v,i) => [v,i]));
-    const n = vertexIds.length;
-    const mat: (number|null)[][] = Array.from({length:n}, ()=>Array(n).fill(null));
+    const idx = new Map(vertexIds.map((v, i) => [v, i])), n = vertexIds.length;
+    const mat: (number | null)[][] = Array.from({ length: n }, () => Array(n).fill(null));
     for (const e of edges) {
       const i = idx.get(e.from), j = idx.get(e.to);
-      if (i==null||j==null) continue;
+      if (i == null || j == null) continue;
       mat[i][j] = config.weighted ? e.weight : 1;
       if (!config.directed) mat[j][i] = config.weighted ? e.weight : 1;
     }
     return mat;
   }, [vertexIds, edges, config]);
 
-  // ── Presets ───────────────────────────────────────────────────────────────────
-  const applyPreset = useCallback((p: {
-    vids: string[]; edgs: [string,string][]; directed: boolean; weighted: boolean; weights?: number[];
-  }) => {
-    simRef.current.clear();
-    setVertexIds(p.vids);
-    setEdges(p.edgs.map(([from,to],i)=>({ from, to, weight: p.weights?.[i] ?? 1 })));
-    setConfig({ directed: p.directed, weighted: p.weighted });
-    setAlgo(null); setStep(-1); setSelV(p.vids[0] ?? "");
-  }, []);
+  // ── Visualization ─────────────────────────────────────────────────────────────
+  const vizContent = useMemo(() => {
+    if (vertexIds.length === 0) return null;
+    const { W, H } = gridDims(vertexIds.length);
+    const positions = staticLayout(vertexIds, W, H);
+    const ec = isDark ? "#4b5563" : "#9ca3af";
 
-  // ── Display helpers ────────────────────────────────────────────────────────────
-  const visitedSet = useMemo(() => new Set(algo?.order?.slice(0, step + 1) ?? []), [algo, step]);
-  const cycleSet   = useMemo(() => new Set(algo?.cycleNodes ?? []), [algo]);
-  const ec = isDark ? "#4b5563" : "#9ca3af";
+    const visitedSet = new Set(activeResult?.order ?? []);
+    const mstSet = new Set(
+      activeResult?.type === "kruskal"
+        ? (activeResult.mstEdges ?? []).map(e => [e.from, e.to].sort().join("—"))
+        : []
+    );
 
-  const nodeFill   = (id:string) => {
-    if (algo?.type === "cycle" && cycleSet.has(id)) return "#ef4444";
-    if (visitedSet.has(id)) return "#facc15";
-    if (id === selV) return "#3b82f6";
-    return isDark ? "#1f2937" : "#e5e7eb";
-  };
-  const nodeStroke = (id:string) => id === selV ? "#3b82f6" : isDark ? "#374151" : "#d1d5db";
-  const nodeText   = (id:string) => {
-    if (algo?.type === "cycle" && cycleSet.has(id)) return "#fff";
-    if (visitedSet.has(id)) return "#1f2937";
-    if (id === selV) return "#fff";
-    return isDark ? "#f9fafb" : "#1f2937";
-  };
+    const renderedEdges = edges.map((edge, idx) => {
+      const a = positions.get(edge.from), b = positions.get(edge.to);
+      if (!a || !b) return null;
+      if (edge.from === edge.to) {
+        return { edge, d: `M ${a.x-10} ${a.y-NODE_R} a 14 12 0 1 1 20 0`, midX: a.x+17, midY: a.y-NODE_R-14 };
+      }
+      const hasBoth = config.directed && edges.some(e => e.from === edge.to && e.to === edge.from);
+      return { edge, ...staticRouteEdge(a, b, config.directed, hasBoth, edge.from < edge.to) };
+    }).filter(Boolean) as Array<{ edge: Edge; d: string; midX: number; midY: number }>;
 
-  const edgeStroke = (e: Edge) => {
-    if (algo?.type === "cycle" && cycleSet.has(e.from) && cycleSet.has(e.to)) return "#ef4444";
-    if (visitedSet.has(e.from) && visitedSet.has(e.to)) return "#facc15";
-    return ec;
-  };
-  const edgeMarker = (e: Edge) => {
-    if (!config.directed) return undefined;
-    if (algo?.type === "cycle" && cycleSet.has(e.from) && cycleSet.has(e.to)) return "url(#arr-cyc)";
-    if (visitedSet.has(e.from) && visitedSet.has(e.to)) return "url(#arr-vis)";
-    return "url(#arr)";
-  };
+    const isMST      = (e: Edge) => mstSet.has([e.from, e.to].sort().join("—"));
+    const edgeStroke = (e: Edge) => {
+      if (activeResult?.type === "kruskal") return isMST(e) ? "#10b981" : isDark ? "#374151" : "#d1d5db";
+      if (visitedSet.has(e.from) && visitedSet.has(e.to)) return "#facc15";
+      return ec;
+    };
+    const edgeStrokeW = (e: Edge) =>
+      activeResult?.type === "kruskal" ? (isMST(e) ? 2.5 : 1) : 1.6;
+    const edgeMarker  = (e: Edge) => {
+      if (!config.directed) return undefined;
+      return visitedSet.has(e.from) && visitedSet.has(e.to) ? "url(#arr-vis)" : "url(#arr)";
+    };
+    const nodeFill = (id: string) => {
+      if (activeResult?.type === "kruskal" && activeResult.mstEdges?.some(e => e.from === id || e.to === id)) return "#10b981";
+      if (visitedSet.has(id)) return "#facc15";
+      if (id === selV) return "#3b82f6";
+      return isDark ? "#1f2937" : "#e5e7eb";
+    };
+    const nodeStroke = (id: string) => id === selV ? "#3b82f6" : isDark ? "#374151" : "#d1d5db";
+    const nodeText   = (id: string) => {
+      if (activeResult?.type === "kruskal" && activeResult.mstEdges?.some(e => e.from === id || e.to === id)) return "#fff";
+      if (visitedSet.has(id)) return "#1f2937";
+      if (id === selV) return "#fff";
+      return isDark ? "#f9fafb" : "#1f2937";
+    };
 
-  const presets = [
-    { label:"Simple cycle",   directed:false, weighted:false, vids:["A","B","C","D"],         edgs:[["A","B"],["B","C"],["C","D"],["D","A"]] as [string,string][] },
-    { label:"Directed DAG",   directed:true,  weighted:false, vids:["A","B","C","D","E"],     edgs:[["A","B"],["A","C"],["B","D"],["C","D"],["D","E"]] as [string,string][] },
-    { label:"Weighted",       directed:false, weighted:true,  vids:["A","B","C","D","E"],     edgs:[["A","B"],["A","C"],["B","C"],["B","D"],["C","E"],["D","E"]] as [string,string][], weights:[4,2,1,5,8,2] },
-    { label:"Directed cycle", directed:true,  weighted:false, vids:["A","B","C","D"],         edgs:[["A","B"],["B","C"],["C","D"],["D","B"]] as [string,string][] },
-    { label:"Disconnected",   directed:false, weighted:false, vids:["A","B","C","D","E","F"], edgs:[["A","B"],["B","C"],["D","E"]] as [string,string][] },
-  ];
+    return (
+      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`}
+        style={{ width: "100%", maxWidth: W, display: "block" }}>
+        <defs>
+          <marker id="arr"     markerWidth="9" markerHeight="9" refX="7" refY="3.5" orient="auto"><path d="M0,0 L0,7 L9,3.5 z" fill={ec}/></marker>
+          <marker id="arr-vis" markerWidth="9" markerHeight="9" refX="7" refY="3.5" orient="auto"><path d="M0,0 L0,7 L9,3.5 z" fill="#facc15"/></marker>
+          <marker id="arr-mst" markerWidth="9" markerHeight="9" refX="7" refY="3.5" orient="auto"><path d="M0,0 L0,7 L9,3.5 z" fill="#10b981"/></marker>
+        </defs>
+
+        <GridBg W={W} H={H} isDark={isDark}/>
+
+        {/* Edges */}
+        {renderedEdges.map((re, i) => (
+          <g key={i}>
+            <path d={re.d} fill="none"
+              stroke={edgeStroke(re.edge)}
+              strokeWidth={edgeStrokeW(re.edge)}
+              strokeDasharray={activeResult?.type === "kruskal" && !isMST(re.edge) ? "4 3" : undefined}
+              markerEnd={edgeMarker(re.edge)}/>
+            {config.weighted && re.edge.from !== re.edge.to && (
+              <g>
+                <rect x={re.midX-11} y={re.midY-7} width={22} height={13} rx={3}
+                  fill={isDark?"#0f172a":"#f8fafc"} fillOpacity={0.9}/>
+                <text x={re.midX} y={re.midY+2} textAnchor="middle"
+                  fontSize={9} fontFamily="ui-monospace,monospace"
+                  fill={isMST(re.edge)?"#10b981":isDark?"#94a3b8":"#64748b"}
+                  fontWeight={isMST(re.edge)?"bold":"normal"}>
+                  {re.edge.weight}
+                </text>
+              </g>
+            )}
+          </g>
+        ))}
+
+        {/* Nodes */}
+        {vertexIds.map(id => {
+          const pos = positions.get(id); if (!pos) return null;
+          const lbl = id.length > 3 ? id.slice(0, 3) : id;
+          return (
+            <g key={id} style={{ cursor: "pointer" }}
+              onClick={() => setSelV(s => s === id ? "" : id)}>
+              {id === selV && (
+                <circle cx={pos.x} cy={pos.y} r={NODE_R+5}
+                  fill="none" stroke="#3b82f6" strokeWidth={2} opacity={0.3}/>
+              )}
+              <circle cx={pos.x} cy={pos.y} r={NODE_R}
+                fill={nodeFill(id)} stroke={nodeStroke(id)} strokeWidth={id===selV?2:1.5}/>
+              <text x={pos.x} y={pos.y} textAnchor="middle" dy="0.35em"
+                fill={nodeText(id)} fontSize={lbl.length>1?11:13}
+                fontWeight="700" fontFamily="ui-monospace,monospace"
+                style={{ pointerEvents:"none", userSelect:"none" }}>
+                {lbl}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+    );
+  }, [vertexIds, edges, config, activeResult, selV, isDark]);
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Render
@@ -723,26 +491,20 @@ export function GraphCalculator() {
 
       {/* Graph type toggles */}
       <div className="px-4 mt-4 flex gap-2">
-        <button
-          onClick={() => { setConfig(c => ({...c, directed: !c.directed})); setEdges([]); setAlgo(null); }}
+        <button onClick={() => { setConfig(c => ({ ...c, directed: !c.directed })); setEdges([]); }}
           className={`flex-1 py-2.5 rounded-full text-sm font-bold transition-all ${config.directed ? "bg-indigo-600 text-white" : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700"}`}>
           {config.directed ? "Directed" : "Undirected"}
         </button>
-        <button
-          onClick={() => setConfig(c => ({...c, weighted: !c.weighted}))}
+        <button onClick={() => setConfig(c => ({ ...c, weighted: !c.weighted }))}
           className={`flex-1 py-2.5 rounded-full text-sm font-bold transition-all ${config.weighted ? "bg-amber-500 text-white" : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700"}`}>
           {config.weighted ? "Weighted" : "Unweighted"}
         </button>
       </div>
-      <p className="text-[10px] text-center text-gray-400 dark:text-gray-600 mt-1.5">
-        Grid {cols}×{rows} reference · vertices float freely · edges auto-route
-      </p>
 
       {/* Build card */}
       <div className="px-4 mt-4">
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-
-          {/* Add vertices */}
+          {/* Add Vertices */}
           <div className="px-4 pt-4 pb-3 border-b border-gray-100 dark:border-gray-700">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">Add Vertices</p>
             <div className="flex gap-2">
@@ -772,7 +534,7 @@ export function GraphCalculator() {
             )}
           </div>
 
-          {/* Add edges */}
+          {/* Add Edge */}
           <div className="px-4 py-3">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">Add Edge</p>
             <div className="flex gap-2 items-center">
@@ -789,8 +551,7 @@ export function GraphCalculator() {
               </select>
               {config.weighted && (
                 <input type="number" value={eWt} onChange={e => setEWt(e.target.value)}
-                  className="w-14 bg-gray-50 dark:bg-[#131820] border border-gray-200 dark:border-gray-700 rounded-xl px-2 py-2.5 text-sm font-mono text-center text-gray-900 dark:text-white outline-none"
-                  placeholder="w"/>
+                  className="w-14 bg-gray-50 dark:bg-[#131820] border border-gray-200 dark:border-gray-700 rounded-xl px-2 py-2.5 text-sm font-mono text-center text-gray-900 dark:text-white outline-none" placeholder="w"/>
               )}
               <button onClick={addEdge} disabled={!eFr || !eTo}
                 className={`flex items-center gap-1 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${eFr && eTo ? "bg-emerald-600 hover:bg-emerald-700 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-400 cursor-not-allowed"}`}>
@@ -801,7 +562,7 @@ export function GraphCalculator() {
               <div className="flex flex-wrap gap-1.5 mt-3">
                 {edges.map((e, i) => (
                   <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-mono bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
-                    {e.from}{config.directed?"→":"—"}{e.to}{config.weighted?`(${e.weight})`:""}
+                    {e.from}{config.directed ? "→" : "—"}{e.to}{config.weighted ? `(${e.weight})` : ""}
                     <button onClick={() => removeEdge(e.from, e.to)} className="opacity-50 hover:opacity-100 ml-0.5">
                       <Trash2 className="w-2.5 h-2.5"/>
                     </button>
@@ -821,90 +582,38 @@ export function GraphCalculator() {
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Graph Visualization</h3>
               <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-0.5">
                 {vertexIds.length > 0
-                  ? `${vertexIds.length}V ${edges.length}E · Drag to reposition freely · Edges auto-route`
+                  ? `${vertexIds.length} vertices · ${edges.length} edges · tap node to select`
                   : "Add vertices to begin"}
               </p>
             </div>
             {vertexIds.length > 0 && (
               <button onClick={clearAll}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-red-100 dark:hover:bg-red-900/30 hover:text-red-500 transition-all">
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-semibold bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-red-100 dark:hover:bg-red-900/30 hover:text-red-500 transition-all">
                 <RotateCcw className="w-3 h-3"/> Clear
               </button>
             )}
           </div>
 
-          <div ref={svgWrapRef}
-            className="flex justify-center overflow-x-auto"
+          <div className="flex justify-center overflow-hidden"
             style={{ background: isDark ? "#0a0e14" : "#f9fafb" }}>
             {vertexIds.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-48 gap-3">
                 <Share2 className="w-10 h-10 text-gray-300 dark:text-gray-700"/>
                 <p className="text-sm text-gray-400 dark:text-gray-600">No vertices yet</p>
               </div>
-            ) : (
-              <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`}
-                style={{ width: "100%", maxWidth: W, touchAction: "none", overflow: "visible" }}
-                onPointerMove={onPtrMove}
-                onPointerUp={onPtrUp}
-                onPointerLeave={onPtrUp}>
-                <Defs ec={ec}/>
-                {/* Grid reference — purely visual, no snapping logic */}
-                <GridBg W={W} H={H} isDark={isDark}/>
-
-                {/* Edges — auto-routed: straight when clear, curved to avoid crossings */}
-                {routed.map((re, i) => {
-                  const stroke = edgeStroke(re.edge);
-                  const marker = edgeMarker(re.edge);
-                  return (
-                    <g key={i}>
-                      <path d={re.d} fill="none" stroke={stroke} strokeWidth={1.6} markerEnd={marker}/>
-                      {config.weighted && re.edge.from !== re.edge.to && (
-                        <g>
-                          <rect x={re.midX - 11} y={re.midY - 7} width={22} height={13} rx={3}
-                            fill={isDark ? "#0f172a" : "#f8fafc"} fillOpacity={0.9}/>
-                          <text x={re.midX} y={re.midY + 2} textAnchor="middle"
-                            fontSize={9} fontFamily="ui-monospace, monospace"
-                            fill={isDark ? "#94a3b8" : "#64748b"}>{re.edge.weight}</text>
-                        </g>
-                      )}
-                    </g>
-                  );
-                })}
-
-                {/* Vertices — positions from physics sim, free-form */}
-                {vertexIds.map(id => {
-                  const pos = snapshots.get(id);
-                  if (!pos) return null;
-                  const lbl = id.length > 3 ? id.slice(0, 3) : id;
-                  return (
-                    <g key={id} style={{ cursor: "grab" }}
-                      onPointerDown={e => { e.stopPropagation(); onPtrDown(id, e); }}
-                      onClick={() => setSelV(s => s === id ? "" : id)}>
-                      {id === selV && (
-                        <circle cx={pos.x} cy={pos.y} r={NODE_R + 5}
-                          fill="none" stroke="#3b82f6" strokeWidth={2} opacity={0.3}/>
-                      )}
-                      <circle cx={pos.x} cy={pos.y} r={NODE_R}
-                        fill={nodeFill(id)} stroke={nodeStroke(id)}
-                        strokeWidth={id === selV ? 2 : 1.5}/>
-                      <text x={pos.x} y={pos.y} textAnchor="middle" dy="0.35em"
-                        fill={nodeText(id)} fontSize={lbl.length > 1 ? 11 : 13}
-                        fontWeight="700" fontFamily="ui-monospace, monospace"
-                        style={{ pointerEvents: "none", userSelect: "none" }}>
-                        {lbl}
-                      </text>
-                    </g>
-                  );
-                })}
-              </svg>
-            )}
+            ) : vizContent}
           </div>
 
+          {/* Legend */}
           {vertexIds.length > 0 && (
             <div className="px-4 py-2 bg-gray-50 dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 flex flex-wrap gap-4">
-              {[["#3b82f6","Selected"],["#facc15","Visited"],["#ef4444","Cycle"]].map(([col,lbl]) => (
+              {[
+                ["#3b82f6", "Selected"],
+                ["#facc15", "BFS/DFS visited"],
+                ["#10b981", "MST edge/node"],
+              ].map(([col, lbl]) => (
                 <div key={lbl} className="flex items-center gap-1.5">
-                  <div className="w-3 h-3 rounded-full" style={{background:col}}/>
+                  <div className="w-3 h-3 rounded-full" style={{ background: col }}/>
                   <span className="text-[10px] text-gray-500 dark:text-gray-400">{lbl}</span>
                 </div>
               ))}
@@ -913,76 +622,149 @@ export function GraphCalculator() {
         </div>
       </div>
 
-      {/* Algorithms */}
+      {/* Algorithm Panel */}
       <div className="px-4 mt-4">
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Algorithms</h3>
-            <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-0.5">
-              {selV ? `Start: ${selV}` : "Tap a vertex to set start · BFS cycle detection"}
-            </p>
-          </div>
-          <div className="px-4 py-3 grid grid-cols-3 gap-2">
-            {[
-              {label:"BFS",       type:"bfs"   as AlgoType, cls:"bg-blue-600 hover:bg-blue-700"},
-              {label:"DFS",       type:"dfs"   as AlgoType, cls:"bg-purple-600 hover:bg-purple-700"},
-              {label:"Cycle(BFS)",type:"cycle" as AlgoType, cls:"bg-rose-600 hover:bg-rose-700"},
-            ].map(({label,type,cls}) => (
-              <button key={type} onClick={() => runAlgo(type)} disabled={!vertexIds.length}
-                className={`py-2.5 rounded-xl text-xs font-bold transition-all ${vertexIds.length ? `${cls} text-white active:scale-[0.97]` : "bg-gray-100 dark:bg-gray-700 text-gray-400 cursor-not-allowed"}`}>
-                {label}
-              </button>
-            ))}
+            <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-0.5">Tap a row to highlight on canvas</p>
           </div>
 
-          {algo && (
-            <div className="border-t border-gray-100 dark:border-gray-700 px-4 py-3">
-              {algo.type !== "cycle" && algo.order && (
-                <>
-                  <div className="flex items-center justify-between mb-2">
-                    <div>
-                      <p className="text-xs font-semibold text-gray-900 dark:text-white">
-                        {algo.type.toUpperCase()} from <span className="font-mono text-blue-500">{algo.startVertex}</span>
-                      </p>
-                      <p className="text-[10px] text-gray-400 mt-0.5">
-                        {algo.type === "bfs" ? "Queue · level-order" : "Recursive · depth-first"}
-                      </p>
-                    </div>
-                    <button onClick={playing ? stopAlgo : playAlgo}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${playing ? "bg-amber-500 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200"}`}>
-                      {playing ? <Pause className="w-3 h-3"/> : <Play className="w-3 h-3"/>}
-                      {playing ? "Pause" : "Play"}
+          {vertexIds.length > 0 && (
+            <div className="px-4 pt-3 pb-2 space-y-2 border-b border-gray-100 dark:border-gray-700">
+              {/* Start vertex */}
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1.5">
+                  Start Vertex <span className="font-normal normal-case text-gray-400">(BFS / DFS)</span>
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {vertexIds.map(id => (
+                    <button key={id} onClick={() => setAlgoStart(s => s === id ? "" : id)}
+                      className={`px-2.5 py-0.5 rounded-full text-xs font-mono font-bold transition-all ${algoStart === id ? "bg-indigo-600 text-white ring-2 ring-indigo-400" : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/30"}`}>
+                      {id}
                     </button>
-                  </div>
-                  <input type="range" min={-1} max={algo.order.length - 1} value={step}
-                    onChange={e => { stopAlgo(); setStep(Number(e.target.value)); }}
-                    className="w-full h-1.5 rounded-full accent-blue-600 mb-3"/>
-                  <div className="flex flex-wrap gap-1.5">
-                    {algo.order.map((v,i) => (
-                      <span key={i} className={`inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs font-mono font-semibold transition-all ${i <= step ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 ring-1 ring-yellow-300/50" : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400"}`}>
-                        <span className="text-[9px] opacity-50">{i+1}.</span>{v}
-                      </span>
-                    ))}
-                  </div>
-                </>
-              )}
-              {algo.type === "cycle" && (
-                <div className={`rounded-xl p-3 ${algo.hasCycle ? "bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800" : "bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800"}`}>
-                  <p className={`text-sm font-bold ${algo.hasCycle ? "text-red-700 dark:text-red-300" : "text-emerald-700 dark:text-emerald-300"}`}>
-                    {algo.hasCycle ? "⚠ Cycle Detected" : "✓ No Cycle Found"}
-                  </p>
-                  <p className="text-[10px] mt-1 text-gray-500 dark:text-gray-400 font-mono">
-                    {config.directed ? "Kahn's BFS — unprocessed nodes = cycle" : "BFS parent tracking — back edge = cycle"}
-                  </p>
-                  {algo.hasCycle && (
-                    <div className="flex flex-wrap gap-1.5 mt-2">
-                      {algo.cycleNodes!.map(v => (
-                        <span key={v} className="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300">{v}</span>
-                      ))}
-                    </div>
-                  )}
+                  ))}
                 </div>
-              )}
+              </div>
+              {/* Neighbor order */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Neighbor Order</span>
+                {(["lvf", "hvf"] as const).map(mode => (
+                  <button key={mode} onClick={() => setNeighborOrder(mode)}
+                    className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${neighborOrder === mode ? "bg-amber-500 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-amber-100 dark:hover:bg-amber-900/20"}`}>
+                    {mode === "lvf" ? "LVF" : "HVF"}
+                  </button>
+                ))}
+                <span className="text-[10px] text-gray-400 dark:text-gray-600">
+                  {neighborOrder === "lvf" ? config.weighted ? "lowest weight first" : "A → Z" : config.weighted ? "highest weight first" : "Z → A"}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {vertexIds.length > 0 ? (
+            <div className="divide-y divide-gray-100 dark:divide-gray-700">
+
+              {/* BFS */}
+              {(() => { const r = algoResults.bfs, isActive = activeAlgo === "bfs"; return (
+                <button onClick={() => setActiveAlgo("bfs")}
+                  className={`w-full text-left px-4 py-3 transition-all ${isActive ? "bg-blue-50 dark:bg-blue-900/20" : "hover:bg-gray-50 dark:hover:bg-gray-700/40"}`}>
+                  <div className="flex items-start gap-3">
+                    <div className="flex-shrink-0 w-20 pt-0.5">
+                      <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${isActive ? "bg-blue-600 text-white" : "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"}`}>BFS</span>
+                      {r?.startVertex && <p className="text-[9px] text-gray-400 mt-1 font-mono">from {r.startVertex}</p>}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      {r?.order ? (
+                        <div className="flex flex-wrap gap-1 items-center">
+                          {r.order.map((v, i) => (
+                            <React.Fragment key={i}>
+                              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 font-mono font-bold text-[10px] ring-1 ring-yellow-300/40">{v}</span>
+                              {i < r.order!.length - 1 && <span className="text-[9px] text-gray-300 dark:text-gray-600">→</span>}
+                            </React.Fragment>
+                          ))}
+                        </div>
+                      ) : <p className="text-xs text-gray-400 italic">—</p>}
+                      <p className="text-[9px] text-gray-400 dark:text-gray-600 mt-1">Queue · level-order</p>
+                    </div>
+                    <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${isActive ? "bg-blue-500" : "bg-transparent"}`}/>
+                  </div>
+                </button>
+              ); })()}
+
+              {/* DFS */}
+              {(() => { const r = algoResults.dfs, isActive = activeAlgo === "dfs"; return (
+                <button onClick={() => setActiveAlgo("dfs")}
+                  className={`w-full text-left px-4 py-3 transition-all ${isActive ? "bg-purple-50 dark:bg-purple-900/20" : "hover:bg-gray-50 dark:hover:bg-gray-700/40"}`}>
+                  <div className="flex items-start gap-3">
+                    <div className="flex-shrink-0 w-20 pt-0.5">
+                      <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${isActive ? "bg-purple-600 text-white" : "bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300"}`}>DFS</span>
+                      {r?.startVertex && <p className="text-[9px] text-gray-400 mt-1 font-mono">from {r.startVertex}</p>}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      {r?.order ? (
+                        <div className="flex flex-wrap gap-1 items-center">
+                          {r.order.map((v, i) => (
+                            <React.Fragment key={i}>
+                              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 font-mono font-bold text-[10px] ring-1 ring-yellow-300/40">{v}</span>
+                              {i < r.order!.length - 1 && <span className="text-[9px] text-gray-300 dark:text-gray-600">→</span>}
+                            </React.Fragment>
+                          ))}
+                        </div>
+                      ) : <p className="text-xs text-gray-400 italic">—</p>}
+                      <p className="text-[9px] text-gray-400 dark:text-gray-600 mt-1">Stack · depth-first</p>
+                    </div>
+                    <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${isActive ? "bg-purple-500" : "bg-transparent"}`}/>
+                  </div>
+                </button>
+              ); })()}
+
+              {/* Kruskal */}
+              {(() => { const r = algoResults.kruskal, isActive = activeAlgo === "kruskal"; return (
+                <button onClick={() => setActiveAlgo("kruskal")}
+                  className={`w-full text-left px-4 py-3 transition-all ${isActive ? "bg-emerald-50 dark:bg-emerald-900/20" : "hover:bg-gray-50 dark:hover:bg-gray-700/40"}`}>
+                  <div className="flex items-start gap-3">
+                    <div className="flex-shrink-0 w-20 pt-0.5">
+                      <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${isActive ? "bg-emerald-600 text-white" : "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300"}`}>Kruskal</span>
+                      {r?.possible && (
+                        <span className="inline-flex items-center gap-0.5 mt-1 px-1.5 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 font-mono font-bold text-[9px]">
+                          cost {r.mstCost}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      {config.directed && <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">Requires undirected graph</p>}
+                      {!config.directed && r && !r.possible && <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">Graph is disconnected</p>}
+                      {!config.directed && r?.possible && (
+                        <div className="flex flex-wrap gap-1 items-center">
+                          {r.mstEdges?.map((e, i) => (
+                            <span key={i} className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-300/30">
+                              {e.from}—{e.to}{config.weighted && <span className="opacity-60">({e.weight})</span>}
+                            </span>
+                          ))}
+                          {(r.skippedEdges?.length ?? 0) > 0 && (
+                            <>
+                              <span className="text-[9px] text-gray-300 dark:text-gray-600 mx-0.5">│</span>
+                              {r.skippedEdges?.map((e, i) => (
+                                <span key={i} className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md text-[10px] font-mono bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 line-through">
+                                  {e.from}—{e.to}{config.weighted && <span className="no-underline opacity-60">({e.weight})</span>}
+                                </span>
+                              ))}
+                            </>
+                          )}
+                        </div>
+                      )}
+                      <p className="text-[9px] text-gray-400 dark:text-gray-600 mt-1">Greedy · sort by weight · DSU · O(E log E)</p>
+                    </div>
+                    <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${isActive ? "bg-emerald-500" : "bg-transparent"}`}/>
+                  </div>
+                </button>
+              ); })()}
+
+            </div>
+          ) : (
+            <div className="px-4 py-6 text-center">
+              <p className="text-sm text-gray-400 dark:text-gray-600">Add vertices to see algorithm results</p>
             </div>
           )}
         </div>
@@ -997,9 +779,9 @@ export function GraphCalculator() {
                 {showMat ? "Adjacency Matrix" : "Adjacency List"}
               </h3>
               <div className="flex gap-1">
-                {[{icon:<List className="w-3.5 h-3.5"/>, val:false},{icon:<Table className="w-3.5 h-3.5"/>, val:true}].map(({icon,val})=>(
-                  <button key={String(val)} onClick={()=>setShowMat(val)}
-                    className={`p-2 rounded-lg transition-all ${showMat===val?"bg-indigo-600 text-white":"bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400"}`}>
+                {[{ icon: <List className="w-3.5 h-3.5"/>, val: false }, { icon: <Table className="w-3.5 h-3.5"/>, val: true }].map(({ icon, val }) => (
+                  <button key={String(val)} onClick={() => setShowMat(val)}
+                    className={`p-2 rounded-lg transition-all ${showMat === val ? "bg-indigo-600 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400"}`}>
                     {icon}
                   </button>
                 ))}
@@ -1013,9 +795,9 @@ export function GraphCalculator() {
                     <span className="text-gray-400 text-xs">→</span>
                     <div className="flex flex-wrap gap-1 flex-1">
                       {(adj.get(v) ?? []).length > 0
-                        ? (adj.get(v) ?? []).map((nb,i)=>(
+                        ? (adj.get(v) ?? []).map((nb, i) => (
                             <span key={i} className="px-2 py-0.5 rounded-md text-xs font-mono font-semibold bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
-                              {nb}{config.weighted ? `(${edges.find(e=>e.from===v&&e.to===nb)?.weight??""})` : ""}
+                              {nb}{config.weighted ? `(${edges.find(e => e.from === v && e.to === nb)?.weight ?? ""})` : ""}
                             </span>
                           ))
                         : <span className="text-xs text-gray-400 italic">no edges</span>}
@@ -1028,26 +810,26 @@ export function GraphCalculator() {
                 <table className="text-xs font-mono border-collapse">
                   <thead>
                     <tr>
-                      <td className="w-8 h-8"/>
-                      {vertexIds.map(v=><th key={v} className="w-8 h-8 text-center font-bold text-gray-700 dark:text-gray-300">{v}</th>)}
+                      <th className="w-8 h-8"/>
+                      {vertexIds.map(v => (
+                        <th key={v} className="w-8 h-8 text-center text-gray-500 dark:text-gray-400 font-bold">{v}</th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {adjMat.map((row,i)=>(
-                      <tr key={i}>
-                        <td className="w-8 h-8 text-center font-bold text-gray-700 dark:text-gray-300 pr-1">{vertexIds[i]}</td>
-                        {row.map((cell,j)=>(
-                          <td key={j} className={`w-8 h-8 text-center border border-gray-200 dark:border-gray-700 ${cell!==null?"bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-bold":"bg-gray-50 dark:bg-gray-900 text-gray-300 dark:text-gray-700"}`}>
-                            {cell!==null?cell:"0"}
+                    {vertexIds.map((v, i) => (
+                      <tr key={v}>
+                        <td className="w-8 h-8 text-center text-gray-500 dark:text-gray-400 font-bold pr-2">{v}</td>
+                        {adjMat[i].map((val, j) => (
+                          <td key={j}
+                            className={`w-8 h-8 text-center border border-gray-100 dark:border-gray-700 rounded ${val !== null ? "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-bold" : "text-gray-300 dark:text-gray-700"}`}>
+                            {val !== null ? (config.weighted ? val : "1") : "0"}
                           </td>
                         ))}
                       </tr>
                     ))}
                   </tbody>
                 </table>
-                <p className="text-[10px] text-gray-400 mt-2 font-mono">
-                  Row=from · Col=to · {config.directed?"Asymmetric":"Symmetric"}
-                </p>
               </div>
             )}
           </div>
@@ -1056,31 +838,37 @@ export function GraphCalculator() {
 
       {/* Presets */}
       <div className="px-4 mt-4">
-        <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">Quick Presets</p>
-        <div className="flex gap-2 overflow-x-auto pb-2">
-          {presets.map(p=>(
-            <button key={p.label} onClick={()=>applyPreset(p)}
-              className="px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-all">
-              {p.label}
-            </button>
-          ))}
+        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Presets</h3>
+            <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-0.5">Tap to load a sample graph</p>
+          </div>
+          <div className="p-3 flex flex-wrap gap-2">
+            {presets.map(p => (
+              <button key={p.label} onClick={() => applyPreset(p)}
+                className="px-3 py-2 rounded-xl text-xs font-semibold bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 hover:text-indigo-700 dark:hover:text-indigo-300 transition-all border border-transparent hover:border-indigo-200 dark:hover:border-indigo-800">
+                {p.label}
+                <span className="ml-1.5 text-[9px] text-gray-400 font-normal">
+                  {p.directed ? "dir" : "undir"}{p.weighted ? " · w" : ""}
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      <div className="h-4"/>
-
-      {/* Bottom bar */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 rounded-t-3xl shadow-lg z-10">
-        <div className="flex items-center justify-between px-4 py-4">
-          <button onClick={clearAll} className="text-sm font-medium text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">
-            Clear All
-          </button>
-          <button onClick={copyAll} disabled={!vertexIds.length}
-            className={`flex items-center gap-2 px-6 py-2.5 rounded-full text-sm font-medium transition-all ${vertexIds.length ? "bg-blue-600 hover:bg-blue-700 text-white shadow-sm" : "bg-gray-200 dark:bg-gray-700 text-gray-400 cursor-not-allowed"}`}>
-            {copied ? <><Check className="w-4 h-4"/> Copied!</> : <><Copy className="w-4 h-4"/> Copy All</>}
+      {/* Copy */}
+      {vertexIds.length > 0 && (
+        <div className="px-4 mt-4 mb-6">
+          <button onClick={copyAll}
+            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-50 transition-all shadow-sm">
+            {copied
+              ? <><Check className="w-4 h-4 text-emerald-500"/> Copied!</>
+              : <><Copy className="w-4 h-4"/> Copy Graph &amp; Results</>}
           </button>
         </div>
-      </div>
+      )}
+
     </div>
   );
 }
