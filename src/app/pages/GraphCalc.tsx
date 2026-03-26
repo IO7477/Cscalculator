@@ -30,10 +30,12 @@ interface Edge {
   to: string;
   weight: number;
 }
+
 interface GraphConfig {
   directed: boolean;
   weighted: boolean;
 }
+
 type AlgoType = "bfs" | "dfs" | "kruskal";
 
 interface AlgoResult {
@@ -61,28 +63,22 @@ interface Position {
 
 const NODE_R = 22;
 const CELL = 72;
-const PAD = NODE_R + 12;
 
 function gridDims(n: number) {
   let cols: number, rows: number;
   if (n <= 3) {
-    cols = 4;
-    rows = 4;
+    cols = 4; rows = 4;
   } else if (n <= 4) {
-    cols = 5;
-    rows = 5;
+    cols = 5; rows = 5;
   } else if (n <= 8) {
-    cols = 6;
-    rows = 6;
+    cols = 6; rows = 6;
   } else if (n <= 12) {
-    cols = 8;
-    rows = 7;
+    cols = 8; rows = 7;
   } else {
     cols = Math.ceil(Math.sqrt(n)) + 3;
     rows = Math.max(cols - 1, cols);
   }
-  const W = cols * CELL,
-    H = rows * CELL;
+  const W = cols * CELL, H = rows * CELL;
   return { cols, rows, W, H };
 }
 
@@ -118,23 +114,15 @@ function staticRouteEdge(
   isSmaller: boolean,
   laneIndex: number = 0
 ): { d: string; midX: number; midY: number } {
-  const dx = to.x - from.x,
-    dy = to.y - from.y;
+  const dx = to.x - from.x, dy = to.y - from.y;
   const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-  const ux = dx / dist,
-    uy = dy / dist,
-    px = -uy,
-    py = ux;
+  const ux = dx / dist, uy = dy / dist, px = -uy, py = ux;
   const arrPad = directed ? 9 : 0;
 
-  const sx = from.x + ux * NODE_R,
-    sy = from.y + uy * NODE_R;
-  const ex = to.x - ux * (NODE_R + arrPad),
-    ey = to.y - uy * (NODE_R + arrPad);
-  const mx = (sx + ex) / 2,
-    my = (sy + ey) / 2;
+  const sx = from.x + ux * NODE_R, sy = from.y + uy * NODE_R;
+  const ex = to.x - ux * (NODE_R + arrPad), ey = to.y - uy * (NODE_R + arrPad);
+  const mx = (sx + ex) / 2, my = (sy + ey) / 2;
 
-  // Base offset magnitude for multi‑edge separation
   const baseOffset = hasBoth ? 38 : 18;
   const laneOffset = laneIndex === 0 ? 0 : baseOffset * laneIndex;
   const sign = isSmaller ? 1 : -1;
@@ -143,18 +131,14 @@ function staticRouteEdge(
     const cpx = mx + px * laneOffset * sign;
     const cpy = my + py * laneOffset * sign;
     return {
-      d: `M ${sx.toFixed(1)} ${sy.toFixed(1)} Q ${cpx.toFixed(
-        1
-      )} ${cpy.toFixed(1)} ${ex.toFixed(1)} ${ey.toFixed(1)}`,
+      d: `M ${sx.toFixed(1)} ${sy.toFixed(1)} Q ${cpx.toFixed(1)} ${cpy.toFixed(1)} ${ex.toFixed(1)} ${ey.toFixed(1)}`,
       midX: cpx,
       midY: cpy,
     };
   }
 
   return {
-    d: `M ${sx.toFixed(1)} ${sy.toFixed(1)} L ${ex.toFixed(1)} ${ey.toFixed(
-      1
-    )}`,
+    d: `M ${sx.toFixed(1)} ${sy.toFixed(1)} L ${ex.toFixed(1)} ${ey.toFixed(1)}`,
     midX: mx,
     midY: my - 8,
   };
@@ -176,14 +160,8 @@ function buildAdj(
   return adj;
 }
 
-function bfs(
-  adj: Map<string, string[]>,
-  vids: string[],
-  start: string
-): string[] {
-  const vis = new Set<string>(),
-    order: string[] = [];
-
+function bfs(adj: Map<string, string[]>, vids: string[], start: string): string[] {
+  const vis = new Set<string>(), order: string[] = [];
   for (const src of [start, ...vids.filter((v) => v !== start)]) {
     if (vis.has(src)) continue;
     const q = [src];
@@ -192,30 +170,19 @@ function bfs(
       const v = q.shift()!;
       order.push(v);
       for (const nb of adj.get(v) ?? []) {
-        if (!vis.has(nb)) {
-          vis.add(nb);
-          q.push(nb);
-        }
+        if (!vis.has(nb)) { vis.add(nb); q.push(nb); }
       }
     }
   }
   return order;
 }
 
-function dfs(
-  adj: Map<string, string[]>,
-  vids: string[],
-  start: string
-): string[] {
-  const vis = new Set<string>(),
-    order: string[] = [];
-
+function dfs(adj: Map<string, string[]>, vids: string[], start: string): string[] {
+  const vis = new Set<string>(), order: string[] = [];
   const go = (v: string) => {
-    vis.add(v);
-    order.push(v);
+    vis.add(v); order.push(v);
     for (const nb of adj.get(v) ?? []) if (!vis.has(nb)) go(nb);
   };
-
   go(start);
   for (const v of vids) if (!vis.has(v)) go(v);
   return order;
@@ -240,18 +207,12 @@ class DSU {
   }
 
   union(x: string, y: string): boolean {
-    const rx = this.find(x),
-      ry = this.find(y);
+    const rx = this.find(x), ry = this.find(y);
     if (rx === ry) return false;
-
-    const rankX = this.rank.get(rx)!,
-      rankY = this.rank.get(ry)!;
+    const rankX = this.rank.get(rx)!, rankY = this.rank.get(ry)!;
     if (rankX < rankY) this.parent.set(rx, ry);
     else if (rankX > rankY) this.parent.set(ry, rx);
-    else {
-      this.parent.set(ry, rx);
-      this.rank.set(rx, rankX + 1);
-    }
+    else { this.parent.set(ry, rx); this.rank.set(rx, rankX + 1); }
     return true;
   }
 }
@@ -259,8 +220,7 @@ class DSU {
 function kruskal(vids: string[], edges: Edge[]) {
   const sorted = [...edges].sort((a, b) => a.weight - b.weight);
   const dsu = new DSU(vids);
-  const mstEdges: Edge[] = [],
-    skippedEdges: Edge[] = [];
+  const mstEdges: Edge[] = [], skippedEdges: Edge[] = [];
   let mstCost = 0;
 
   for (const e of sorted) {
@@ -284,43 +244,19 @@ function kruskal(vids: string[], edges: Edge[]) {
 
 // ─── Grid background ──────────────────────────────────────────────────────────
 
-function GridBg({
-  W,
-  H,
-  isDark,
-}: {
-  W: number;
-  H: number;
-  isDark: boolean;
-}) {
+function GridBg({ W, H, isDark }: { W: number; H: number; isDark: boolean }) {
   const lineClr = isDark ? "rgba(255,255,255,0.045)" : "rgba(30,50,120,0.065)";
   const dotClr = isDark ? "rgba(255,255,255,0.16)" : "rgba(30,50,120,0.18)";
   const els: React.ReactNode[] = [];
 
   for (let x = 0; x <= W; x += CELL) {
     els.push(
-      <line
-        key={`v${x}`}
-        x1={x}
-        y1={0}
-        x2={x}
-        y2={H}
-        stroke={lineClr}
-        strokeWidth={0.6}
-      />
+      <line key={`v${x}`} x1={x} y1={0} x2={x} y2={H} stroke={lineClr} strokeWidth={0.6} />
     );
   }
   for (let y = 0; y <= H; y += CELL) {
     els.push(
-      <line
-        key={`h${y}`}
-        x1={0}
-        y1={y}
-        x2={W}
-        y2={y}
-        stroke={lineClr}
-        strokeWidth={0.6}
-      />
+      <line key={`h${y}`} x1={0} y1={y} x2={W} y2={y} stroke={lineClr} strokeWidth={0.6} />
     );
   }
   for (let x = 0; x <= W; x += CELL) {
@@ -366,17 +302,30 @@ export function GraphCalculator() {
   const [algoStart, setAlgoStart] = useState("");
   const [neighborOrder, setNeighborOrder] = useState<"lvf" | "hvf">("lvf");
 
-  // Real‑time simulation index for BFS/DFS
+  // ── Option 1: Tap row = replay once ─────────────────────────────────────────
+  const [bfsRunId, setBfsRunId] = useState(0);
+  const [dfsRunId, setDfsRunId] = useState(0);
+  const [animatingAlgo, setAnimatingAlgo] = useState<"bfs" | "dfs" | null>(null);
   const [stepIndex, setStepIndex] = useState(0);
 
-  // ── Node positions & dragging (interactive layout) ──────────────────────────
-  const [nodePositions, setNodePositions] = useState<
-    Record<string, Position>
-  >({});
+  // ── Node positions & dragging ───────────────────────────────────────────────
+  const [nodePositions, setNodePositions] = useState<Record<string, Position>>({});
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState<Position | null>(null);
 
-  // ── Adjacency ───────────────────────────────────────────────────────────────
+  // ── Edge selection + inline weight editing ──────────────────────────────────
+  const [selectedEdgeKey, setSelectedEdgeKey] = useState<string | null>(null);
+  const [editingEdgeKey, setEditingEdgeKey] = useState<string | null>(null);
+  const [editingWeight, setEditingWeight] = useState<string>("");
+
+  const edgeKey = useCallback((e: Edge) => `${e.from}→${e.to}`, []);
+
+  // ── Double-tap to connect ───────────────────────────────────────────────────
+  const [dtapFirst, setDtapFirst] = useState<string | null>(null);
+  const [dtapTimer, setDtapTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
+
+  // ─── Adjacency ───────────────────────────────────────────────────────────────
+
   const adj = useMemo(
     () => buildAdj(vertexIds, edges, config.directed),
     [vertexIds, edges, config.directed]
@@ -384,13 +333,15 @@ export function GraphCalculator() {
 
   const sortedAdj = useMemo(() => {
     const sorted = new Map<string, string[]>();
-
     for (const [v, neighbors] of adj) {
       const s = [...neighbors].sort((a, b) => {
         if (config.weighted) {
-          const wa =
-              edges.find((e) => e.from === v && e.to === a)?.weight ?? 0,
-            wb = edges.find((e) => e.from === v && e.to === b)?.weight ?? 0;
+          const wa = Number(
+            edges.find((e) => e.from === v && e.to === a)?.weight ?? 0
+          );
+          const wb = Number(
+            edges.find((e) => e.from === v && e.to === b)?.weight ?? 0
+          );
           return neighborOrder === "lvf" ? wa - wb : wb - wa;
         }
         return neighborOrder === "lvf"
@@ -399,19 +350,17 @@ export function GraphCalculator() {
       });
       sorted.set(v, s);
     }
-
     return sorted;
   }, [adj, edges, config.weighted, neighborOrder]);
 
-  // ── Auto-run algorithms (BFS / DFS / Kruskal) ───────────────────────────────
+  // ─── Auto-run algorithms ──────────────────────────────────────────────────────
+
   React.useEffect(() => {
     if (!vertexIds.length) {
       setAlgoResults({ bfs: null, dfs: null, kruskal: null });
       return;
     }
-
     const start = algoStart || selV || vertexIds[0];
-
     setAlgoResults({
       bfs: {
         type: "bfs",
@@ -424,69 +373,135 @@ export function GraphCalculator() {
         startVertex: start,
       },
       kruskal: config.directed
-        ? {
-            type: "kruskal",
-            possible: false,
-            mstEdges: [],
-            skippedEdges: [],
-            mstCost: 0,
-          }
+        ? { type: "kruskal", possible: false, mstEdges: [], skippedEdges: [], mstCost: 0 }
         : { type: "kruskal", ...kruskal(vertexIds, edges) },
     });
   }, [vertexIds, edges, sortedAdj, algoStart, selV, config.directed]);
 
   const activeResult = algoResults[activeAlgo] ?? null;
 
-  // Reset simulation step whenever algo or graph changes
-  React.useEffect(() => {
-    setStepIndex(0);
-  }, [activeAlgo, vertexIds, edges, config.directed, config.weighted, algoStart, selV, neighborOrder]);
-
-  // Real-time simulation for BFS / DFS (no playback controls)
+  // Snap to end when not animating
   React.useEffect(() => {
     if (!activeResult || activeResult.type === "kruskal") return;
+    if (animatingAlgo) return;
+    const order = activeResult.order ?? [];
+    setStepIndex(Math.max(0, order.length - 1));
+  }, [activeResult, animatingAlgo]);
 
+  // Animate BFS on bfsRunId bump
+  React.useEffect(() => {
+    if (activeAlgo !== "bfs") return;
+    if (bfsRunId === 0) return;
+    if (!activeResult || activeResult.type !== "bfs") return;
     const order = activeResult.order ?? [];
     if (!order.length) return;
 
+    setAnimatingAlgo("bfs");
     setStepIndex(0);
-    let current = 0;
 
     const id = window.setInterval(() => {
-      current += 1;
       setStepIndex((prev) => {
         if (prev >= order.length - 1) {
           window.clearInterval(id);
-          return prev;
+          setAnimatingAlgo(null);
+          return order.length - 1;
         }
         return prev + 1;
       });
-    }, 600); // step duration (ms)
+    }, 600);
 
-    return () => window.clearInterval(id);
-  }, [activeResult]);
+    return () => { window.clearInterval(id); setAnimatingAlgo(null); };
+  }, [activeAlgo, bfsRunId, activeResult]);
 
-  // ── Graph operations ────────────────────────────────────────────────────────
+  // Animate DFS on dfsRunId bump
+  React.useEffect(() => {
+    if (activeAlgo !== "dfs") return;
+    if (dfsRunId === 0) return;
+    if (!activeResult || activeResult.type !== "dfs") return;
+    const order = activeResult.order ?? [];
+    if (!order.length) return;
+
+    setAnimatingAlgo("dfs");
+    setStepIndex(0);
+
+    const id = window.setInterval(() => {
+      setStepIndex((prev) => {
+        if (prev >= order.length - 1) {
+          window.clearInterval(id);
+          setAnimatingAlgo(null);
+          return order.length - 1;
+        }
+        return prev + 1;
+      });
+    }, 600);
+
+    return () => { window.clearInterval(id); setAnimatingAlgo(null); };
+  }, [activeAlgo, dfsRunId, activeResult]);
+
+  // ─── Graph operations ─────────────────────────────────────────────────────────
+
   const addVertices = useCallback(() => {
-    const tokens = vInput
-      .split(/[\s,;]+/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (!tokens.length) return;
+    const raw = vInput.trim();
+    if (!raw) return;
+
+    const segments = raw.split(",").map((s) => s.trim()).filter(Boolean);
+
+    const newVertices: string[] = [];
+    const newEdges: { from: string; to: string }[] = [];
+    const skipped: string[] = [];
+    const errors: string[] = [];
 
     const existing = new Set(vertexIds);
-    const dupes = tokens.filter((t) => existing.has(t));
-    const fresh = tokens.filter((t) => !existing.has(t));
 
-    if (!fresh.length) {
-      setError(`Already exists: ${dupes.join(", ")}`);
+    for (const seg of segments) {
+      const toMatch = seg.match(/^(\S+)\s+to\s+(\S+)$/i);
+
+      if (toMatch) {
+        const from = toMatch[1].trim();
+        const to = toMatch[2].trim();
+
+        if (!existing.has(from)) { newVertices.push(from); existing.add(from); }
+        if (!existing.has(to)) { newVertices.push(to); existing.add(to); }
+
+        const dup = edges.some(
+          (e) =>
+            (e.from === from && e.to === to) ||
+            (!config.directed && e.from === to && e.to === from)
+        );
+        if (!dup) {
+          newEdges.push({ from, to });
+        } else {
+          errors.push(`Edge ${from}→${to} already exists`);
+        }
+      } else {
+        const tokens = seg.split(/\s+/).filter(Boolean);
+        for (const t of tokens) {
+          if (existing.has(t)) { skipped.push(t); }
+          else { newVertices.push(t); existing.add(t); }
+        }
+      }
+    }
+
+    if (newVertices.length === 0 && newEdges.length === 0) {
+      setError(skipped.length ? `Already exists: ${skipped.join(", ")}` : null);
       return;
     }
 
-    setError(dupes.length ? `Skipped: ${dupes.join(", ")}` : null);
-    setVertexIds((prev) => [...prev, ...fresh]);
+    if (newVertices.length > 0) setVertexIds((prev) => [...prev, ...newVertices]);
+    if (newEdges.length > 0) {
+      setEdges((prev) => [
+        ...prev,
+        ...newEdges.map((e) => ({ ...e, weight: Number(eWt) || 1 })),
+      ]);
+    }
+
+    const allErrors = [
+      ...errors,
+      ...(skipped.length ? [`Skipped: ${skipped.join(", ")}`] : []),
+    ];
+    setError(allErrors.length ? allErrors.join(" · ") : null);
     setVInput("");
-  }, [vInput, vertexIds]);
+  }, [vInput, vertexIds, edges, config.directed, eWt]);
 
   const removeVertex = useCallback(
     (id: string) => {
@@ -503,41 +518,26 @@ export function GraphCalculator() {
     [selV, algoStart]
   );
 
-  const addEdge = useCallback(
-    () => {
-      const f = eFr.trim(),
-        t = eTo.trim();
-      if (!f || !t) {
-        setError("Select both vertices");
-        return;
-      }
+  const addEdge = useCallback(() => {
+    const f = eFr.trim(), t = eTo.trim();
+    if (!f || !t) { setError("Select both vertices"); return; }
 
-      const vset = new Set(vertexIds);
-      if (!vset.has(f) || !vset.has(t)) {
-        setError("Vertex not found");
-        return;
-      }
+    const vset = new Set(vertexIds);
+    if (!vset.has(f) || !vset.has(t)) { setError("Vertex not found"); return; }
 
-      const dup = edges.some(
-        (e) =>
-          (e.from === f && e.to === t) ||
-          (!config.directed && e.from === t && e.to === f)
-      );
-      if (dup) {
-        setError(
-          `Edge ${f}${config.directed ? "→" : "—"}${t} already exists`
-        );
-        return;
-      }
+    const dup = edges.some(
+      (e) =>
+        (e.from === f && e.to === t) ||
+        (!config.directed && e.from === t && e.to === f)
+    );
+    if (dup) {
+      setError(`Edge ${f}${config.directed ? "→" : "—"}${t} already exists`);
+      return;
+    }
 
-      setError(null);
-      setEdges((prev) => [
-        ...prev,
-        { from: f, to: t, weight: Number(eWt) || 1 },
-      ]);
-    },
-    [eFr, eTo, eWt, vertexIds, edges, config.directed]
-  );
+    setError(null);
+    setEdges((prev) => [...prev, { from: f, to: t, weight: Number(eWt) || 1 }]);
+  }, [eFr, eTo, eWt, vertexIds, edges, config.directed]);
 
   const removeEdge = useCallback((from: string, to: string) => {
     setEdges((prev) => prev.filter((e) => !(e.from === from && e.to === to)));
@@ -554,39 +554,21 @@ export function GraphCalculator() {
 
   const copyAll = useCallback(async () => {
     const lines = [
-      `Graph (${config.directed ? "Directed" : "Undirected"}${
-        config.weighted ? ", Weighted" : ""
-      })`,
+      `Graph (${config.directed ? "Directed" : "Undirected"}${config.weighted ? ", Weighted" : ""})`,
       `Vertices: ${vertexIds.join(", ")}`,
-      `Edges: ${edges
-        .map((e) =>
-          config.weighted
-            ? `${e.from}→${e.to}(${e.weight})`
-            : `${e.from}→${e.to}`
-        )
-        .join(", ")}`,
+      `Edges: ${edges.map((e) => config.weighted ? `${e.from}→${e.to}(${e.weight})` : `${e.from}→${e.to}`).join(", ")}`,
       "",
       "Adjacency List:",
-      ...vertexIds.map(
-        (v) => `  ${v}: [${adj.get(v)?.join(", ") || "—"}]`
-      ),
+      ...vertexIds.map((v) => `  ${v}: [${adj.get(v)?.join(", ") || "—"}]`),
       "",
       algoResults.bfs
-        ? `BFS from ${algoResults.bfs.startVertex}: [${algoResults.bfs.order?.join(
-            ", "
-          )}]`
+        ? `BFS from ${algoResults.bfs.startVertex}: [${algoResults.bfs.order?.join(", ")}]`
         : "",
       algoResults.dfs
-        ? `DFS from ${algoResults.dfs.startVertex}: [${algoResults.dfs.order?.join(
-            ", "
-          )}]`
+        ? `DFS from ${algoResults.dfs.startVertex}: [${algoResults.dfs.order?.join(", ")}]`
         : "",
       algoResults.kruskal?.possible
-        ? `Kruskal MST cost: ${
-            algoResults.kruskal.mstCost
-          } — edges: ${algoResults.kruskal.mstEdges
-            ?.map((e) => `${e.from}—${e.to}(${e.weight})`)
-            .join(", ")}`
+        ? `Kruskal MST cost: ${algoResults.kruskal.mstCost} — edges: ${algoResults.kruskal.mstEdges?.map((e) => `${e.from}—${e.to}(${e.weight})`).join(", ")}`
         : "",
     ].filter((l) => l !== "");
 
@@ -595,7 +577,46 @@ export function GraphCalculator() {
     setTimeout(() => setCopied(false), 2000);
   }, [vertexIds, edges, config, adj, algoResults]);
 
+  // ── Double-tap to connect handler ──────────────────────────────────────────
+
+  const handleNodeDoubleClick = useCallback(
+    (id: string) => {
+      if (!dtapFirst) {
+        setDtapFirst(id);
+        const t = setTimeout(() => setDtapFirst(null), 3000);
+        setDtapTimer(t);
+      } else {
+        if (dtapTimer) clearTimeout(dtapTimer);
+        setDtapTimer(null);
+
+        if (dtapFirst === id) {
+          setDtapFirst(null);
+          return;
+        }
+
+        const dup = edges.some(
+          (e) =>
+            (e.from === dtapFirst && e.to === id) ||
+            (!config.directed && e.from === id && e.to === dtapFirst)
+        );
+
+        if (!dup) {
+          setEdges((prev) => [
+            ...prev,
+            { from: dtapFirst, to: id, weight: Number(eWt) || 1 },
+          ]);
+        } else {
+          setError(`Edge ${dtapFirst}${config.directed ? "→" : "—"}${id} already exists`);
+        }
+
+        setDtapFirst(null);
+      }
+    },
+    [dtapFirst, dtapTimer, edges, config.directed, eWt]
+  );
+
   // ── Presets ─────────────────────────────────────────────────────────────────
+
   const applyPreset = useCallback(
     (p: {
       vids: string[];
@@ -605,13 +626,7 @@ export function GraphCalculator() {
       weights?: number[];
     }) => {
       setVertexIds(p.vids);
-      setEdges(
-        p.edgs.map(([from, to], i) => ({
-          from,
-          to,
-          weight: p.weights?.[i] ?? 1,
-        }))
-      );
+      setEdges(p.edgs.map(([from, to], i) => ({ from, to, weight: p.weights?.[i] ?? 1 })));
       setConfig({ directed: p.directed, weighted: p.weighted });
       setSelV(p.vids[0] ?? "");
       setAlgoStart("");
@@ -624,80 +639,46 @@ export function GraphCalculator() {
   const presets = [
     {
       label: "Simple cycle",
-      directed: false,
-      weighted: false,
+      directed: false, weighted: false,
       vids: ["A", "B", "C", "D"],
-      edgs: [
-        ["A", "B"],
-        ["B", "C"],
-        ["C", "D"],
-        ["D", "A"],
-      ] as [string, string][],
+      edgs: [["A", "B"], ["B", "C"], ["C", "D"], ["D", "A"]] as [string, string][],
     },
     {
       label: "Directed DAG",
-      directed: true,
-      weighted: false,
+      directed: true, weighted: false,
       vids: ["A", "B", "C", "D", "E"],
-      edgs: [
-        ["A", "B"],
-        ["A", "C"],
-        ["B", "D"],
-        ["C", "D"],
-        ["D", "E"],
-      ] as [string, string][],
+      edgs: [["A", "B"], ["A", "C"], ["B", "D"], ["C", "D"], ["D", "E"]] as [string, string][],
     },
     {
       label: "Weighted MST",
-      directed: false,
-      weighted: true,
+      directed: false, weighted: true,
       vids: ["A", "B", "C", "D", "E"],
-      edgs: [
-        ["A", "B"],
-        ["A", "C"],
-        ["B", "C"],
-        ["B", "D"],
-        ["C", "E"],
-        ["D", "E"],
-      ] as [string, string][],
+      edgs: [["A", "B"], ["A", "C"], ["B", "C"], ["B", "D"], ["C", "E"], ["D", "E"]] as [string, string][],
       weights: [4, 2, 1, 5, 8, 2],
     },
     {
       label: "Directed cycle",
-      directed: true,
-      weighted: false,
+      directed: true, weighted: false,
       vids: ["A", "B", "C", "D"],
-      edgs: [
-        ["A", "B"],
-        ["B", "C"],
-        ["C", "D"],
-        ["D", "B"],
-      ] as [string, string][],
+      edgs: [["A", "B"], ["B", "C"], ["C", "D"], ["D", "B"]] as [string, string][],
     },
     {
       label: "Disconnected",
-      directed: false,
-      weighted: false,
+      directed: false, weighted: false,
       vids: ["A", "B", "C", "D", "E", "F"],
-      edgs: [
-        ["A", "B"],
-        ["B", "C"],
-        ["D", "E"],
-      ] as [string, string][],
+      edgs: [["A", "B"], ["B", "C"], ["D", "E"]] as [string, string][],
     },
   ];
 
   // ── Adjacency matrix ────────────────────────────────────────────────────────
+
   const adjMat = useMemo(() => {
     const idx = new Map(vertexIds.map((v, i) => [v, i]));
     const n = vertexIds.length;
-    const mat: (number | null)[][] = Array.from({ length: n }, () =>
-      Array(n).fill(null)
-    );
+    const mat: (number | null)[][] = Array.from({ length: n }, () => Array(n).fill(null));
 
     for (const e of edges) {
-      const i = idx.get(e.from),
-        j = idx.get(e.to);
+      const i = idx.get(e.from), j = idx.get(e.to);
       if (i == null || j == null) continue;
       mat[i][j] = config.weighted ? e.weight : 1;
       if (!config.directed) mat[j][i] = config.weighted ? e.weight : 1;
@@ -706,31 +687,23 @@ export function GraphCalculator() {
     return mat;
   }, [vertexIds, edges, config]);
 
-  // ── Drag handlers for interactive layout ────────────────────────────────────
+  // ── Drag handlers ───────────────────────────────────────────────────────────
 
   const handleNodeMouseDown = useCallback(
-    (
-      id: string,
-      e: React.MouseEvent<SVGGElement, MouseEvent>,
-      fallbackPos: Position
-    ) => {
+    (id: string, e: React.MouseEvent<SVGGElement, MouseEvent>, fallbackPos: Position) => {
       e.preventDefault();
       const svg = e.currentTarget.ownerSVGElement;
       if (!svg) return;
 
       const pt = svg.createSVGPoint();
-      pt.x = e.clientX;
-      pt.y = e.clientY;
+      pt.x = e.clientX; pt.y = e.clientY;
       const ctm = svg.getScreenCTM();
       if (!ctm) return;
       const cursor = pt.matrixTransform(ctm.inverse());
 
       const current = nodePositions[id] ?? fallbackPos;
       setDraggingId(id);
-      setDragOffset({
-        x: cursor.x - current.x,
-        y: cursor.y - current.y,
-      });
+      setDragOffset({ x: cursor.x - current.x, y: cursor.y - current.y });
     },
     [nodePositions]
   );
@@ -740,18 +713,14 @@ export function GraphCalculator() {
       if (!draggingId || !dragOffset) return;
       const svg = e.currentTarget;
       const pt = svg.createSVGPoint();
-      pt.x = e.clientX;
-      pt.y = e.clientY;
+      pt.x = e.clientX; pt.y = e.clientY;
       const ctm = svg.getScreenCTM();
       if (!ctm) return;
       const cursor = pt.matrixTransform(ctm.inverse());
 
-      const x = cursor.x - dragOffset.x;
-      const y = cursor.y - dragOffset.y;
-
       setNodePositions((prev) => ({
         ...prev,
-        [draggingId]: { x, y },
+        [draggingId]: { x: cursor.x - dragOffset.x, y: cursor.y - dragOffset.y },
       }));
     },
     [draggingId, dragOffset]
@@ -761,8 +730,7 @@ export function GraphCalculator() {
     if (draggingId) setDraggingId(null);
     if (dragOffset) setDragOffset(null);
   }, [draggingId, dragOffset]);
-
-  // ── Visualization ───────────────────────────────────────────────────────────
+  // ─── Visualization memo ───────────────────────────────────────────────────────
 
   const vizContent = useMemo(() => {
     if (vertexIds.length === 0) return null;
@@ -782,23 +750,28 @@ export function GraphCalculator() {
 
     const ec = isDark ? "#4b5563" : "#9ca3af";
 
-    // For BFS/DFS, only show prefix of order; for Kruskal, full set
     const baseOrder = activeResult?.order ?? [];
+
+    const shouldAnimate =
+      activeResult &&
+      (activeResult.type === "bfs" || activeResult.type === "dfs") &&
+      animatingAlgo === activeResult.type;
+
     const visibleOrder =
       activeResult && activeResult.type !== "kruskal"
-        ? baseOrder.slice(0, Math.min(stepIndex + 1, baseOrder.length))
+        ? shouldAnimate
+          ? baseOrder.slice(0, Math.min(stepIndex + 1, baseOrder.length))
+          : baseOrder
         : baseOrder;
 
     const visitedSet = new Set(visibleOrder);
+
     const mstSet = new Set(
       activeResult?.type === "kruskal"
-        ? (activeResult.mstEdges ?? []).map((e) =>
-            [e.from, e.to].sort().join("—")
-          )
+        ? (activeResult.mstEdges ?? []).map((e) => [e.from, e.to].sort().join("—"))
         : []
     );
 
-    // Group edges by undirected pair for lane assignment (no collisions)
     const edgeGroups = new Map<string, Edge[]>();
     edges.forEach((e) => {
       const key = [e.from, e.to].sort().join("|");
@@ -824,20 +797,16 @@ export function GraphCalculator() {
 
         const hasBoth =
           config.directed &&
-          edges.some(
-            (e) => e.from === edge.to && e.to === edge.from
-          );
+          edges.some((e) => e.from === edge.to && e.to === edge.from);
 
         const key = [edge.from, edge.to].sort().join("|");
         const group = edgeGroups.get(key) ?? [];
-        const laneIndex =
-          group.length > 1 ? group.indexOf(edge) + 1 : 0;
+        const laneIndex = group.length > 1 ? group.indexOf(edge) + 1 : 0;
 
         return {
           edge,
           ...staticRouteEdge(
-            a,
-            b,
+            a, b,
             config.directed,
             hasBoth,
             edge.from < edge.to,
@@ -845,48 +814,40 @@ export function GraphCalculator() {
           ),
         };
       })
-      .filter(Boolean) as Array<{
-      edge: Edge;
-      d: string;
-      midX: number;
-      midY: number;
-    }>;
+      .filter(Boolean) as Array<{ edge: Edge; d: string; midX: number; midY: number }>;
 
-    const isMST = (e: Edge) =>
-      mstSet.has([e.from, e.to].sort().join("—"));
+    const isMST = (e: Edge) => mstSet.has([e.from, e.to].sort().join("—"));
 
     const edgeStroke = (e: Edge) => {
+      const isSelected = edgeKey(e) === selectedEdgeKey;
       if (activeResult?.type === "kruskal") {
-        return isMST(e)
-          ? "#10b981"
-          : isDark
-          ? "#374151"
-          : "#d1d5db";
+        if (isMST(e)) return isSelected ? "#22c55e" : "#10b981";
+        return isDark ? "#374151" : "#d1d5db";
       }
-      if (visitedSet.has(e.from) && visitedSet.has(e.to)) {
-        return "#facc15";
-      }
+      if (visitedSet.has(e.from) && visitedSet.has(e.to)) return "#facc15";
+      if (isSelected) return isDark ? "#e5e7eb" : "#111827";
       return ec;
     };
 
-    const edgeStrokeW = (e: Edge) =>
-      activeResult?.type === "kruskal" ? (isMST(e) ? 2.5 : 1) : 1.6;
+    const edgeStrokeW = (e: Edge) => {
+      const isSelected = edgeKey(e) === selectedEdgeKey;
+      if (isSelected) return 3;
+      return activeResult?.type === "kruskal" ? (isMST(e) ? 2.5 : 1) : 1.6;
+    };
 
     const edgeMarker = (e: Edge) => {
       if (!config.directed) return undefined;
-      if (activeResult?.type === "kruskal" && isMST(e))
-        return "url(#arr-mst)";
+      if (activeResult?.type === "kruskal" && isMST(e)) return "url(#arr-mst)";
       return visitedSet.has(e.from) && visitedSet.has(e.to)
         ? "url(#arr-vis)"
         : "url(#arr)";
     };
 
     const nodeFill = (id: string) => {
+      if (id === dtapFirst) return isDark ? "#7c3aed" : "#8b5cf6";
       if (
         activeResult?.type === "kruskal" &&
-        activeResult.mstEdges?.some(
-          (e) => e.from === id || e.to === id
-        )
+        activeResult.mstEdges?.some((e) => e.from === id || e.to === id)
       )
         return "#10b981";
       if (visitedSet.has(id)) return "#facc15";
@@ -895,18 +856,13 @@ export function GraphCalculator() {
     };
 
     const nodeStroke = (id: string) =>
-      id === selV
-        ? "#3b82f6"
-        : isDark
-        ? "#374151"
-        : "#d1d5db";
+      id === selV ? "#3b82f6" : isDark ? "#374151" : "#d1d5db";
 
     const nodeText = (id: string) => {
+      if (id === dtapFirst) return "#fff";
       if (
         activeResult?.type === "kruskal" &&
-        activeResult.mstEdges?.some(
-          (e) => e.from === id || e.to === id
-        )
+        activeResult.mstEdges?.some((e) => e.from === id || e.to === id)
       )
         return "#fff";
       if (visitedSet.has(id)) return "#1f2937";
@@ -935,11 +891,13 @@ export function GraphCalculator() {
     isDark,
     nodePositions,
     stepIndex,
+    animatingAlgo,
+    selectedEdgeKey,
+    edgeKey,
+    dtapFirst,
   ]);
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // Render
-  // ─────────────────────────────────────────────────────────────────────────────
+  // ─── Destructure vizContent ───────────────────────────────────────────────────
 
   const {
     svgWidth,
@@ -954,9 +912,12 @@ export function GraphCalculator() {
     nodeText,
   } = (vizContent as any) || {};
 
+  // ─── Render ───────────────────────────────────────────────────────────────────
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-[#0f1419] pb-28">
-      {/* Header */}
+
+      {/* ── Header ── */}
       <div className="bg-white dark:bg-gray-800 rounded-b-3xl shadow-sm">
         <div className="px-4 pt-4 pb-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -967,34 +928,23 @@ export function GraphCalculator() {
               <ChevronLeft className="w-5 h-5 text-gray-700 dark:text-gray-300" />
             </button>
             <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">
-                Toolbox
-              </p>
-              <h1 className="text-xl font-bold text-gray-900 dark:text-white">
-                Graph Calculator
-              </h1>
+              <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">Toolbox</p>
+              <h1 className="text-xl font-bold text-gray-900 dark:text-white">Graph Calculator</h1>
             </div>
           </div>
           <button
             onClick={toggleTheme}
             className="w-10 h-10 flex items-center justify-center bg-gray-100 dark:bg-gray-700 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 transition-all"
           >
-            {isDark ? (
-              <Moon className="w-4 h-4 text-gray-300" />
-            ) : (
-              <Sun className="w-4 h-4 text-yellow-500" />
-            )}
+            {isDark ? <Moon className="w-4 h-4 text-gray-300" /> : <Sun className="w-4 h-4 text-yellow-500" />}
           </button>
         </div>
       </div>
 
-      {/* Graph type toggles */}
+      {/* ── Graph type toggles ── */}
       <div className="px-4 mt-4 flex gap-2">
         <button
-          onClick={() => {
-            setConfig((c) => ({ ...c, directed: !c.directed }));
-            setEdges([]);
-          }}
+          onClick={() => { setConfig((c) => ({ ...c, directed: !c.directed })); setEdges([]); }}
           className={`flex-1 py-2.5 rounded-full text-sm font-bold transition-all ${
             config.directed
               ? "bg-indigo-600 text-white"
@@ -1015,31 +965,27 @@ export function GraphCalculator() {
         </button>
       </div>
 
-      {/* Build card */}
+      {/* ── Build card ── */}
       <div className="px-4 mt-4">
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+
           {/* Add Vertices */}
           <div className="px-4 pt-4 pb-3 border-b border-gray-100 dark:border-gray-700">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">
               Add Vertices
             </p>
             <div className="flex gap-2">
-              <div
-                className={`flex-1 rounded-xl bg-gray-50 dark:bg-[#131820] border px-3 py-2.5 ${
-                  error
-                    ? "border-red-400"
-                    : "border-gray-200 dark:border-gray-700 focus-within:border-blue-500"
-                }`}
-              >
+              <div className={`flex-1 rounded-xl bg-gray-50 dark:bg-[#131820] border px-3 py-2.5 ${
+                error
+                  ? "border-red-400"
+                  : "border-gray-200 dark:border-gray-700 focus-within:border-blue-500"
+              }`}>
                 <input
                   type="text"
                   value={vInput}
-                  onChange={(e) => {
-                    setVInput(e.target.value);
-                    setError(null);
-                  }}
+                  onChange={(e) => { setVInput(e.target.value); setError(null); }}
                   onKeyDown={(e) => e.key === "Enter" && addVertices()}
-                  placeholder="A, B, C  or  A B C"
+                  placeholder='A B C  or  "A to B, C to D"'
                   className="w-full bg-transparent text-sm font-mono text-gray-900 dark:text-white outline-none placeholder:text-gray-400 dark:placeholder:text-gray-600"
                 />
               </div>
@@ -1055,9 +1001,7 @@ export function GraphCalculator() {
                 <Plus className="w-4 h-4" /> Add
               </button>
             </div>
-            {error && (
-              <p className="text-[10px] text-red-500 mt-1.5">⚠ {error}</p>
-            )}
+            {error && <p className="text-[10px] text-red-500 mt-1.5">⚠ {error}</p>}
             {vertexIds.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mt-3">
                 {vertexIds.map((id) => (
@@ -1072,10 +1016,7 @@ export function GraphCalculator() {
                   >
                     {id}
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        removeVertex(id);
-                      }}
+                      onClick={(e) => { e.stopPropagation(); removeVertex(id); }}
                       className="opacity-50 hover:opacity-100 ml-0.5"
                     >
                       ×
@@ -1098,11 +1039,7 @@ export function GraphCalculator() {
                 className="flex-1 bg-gray-50 dark:bg-[#131820] border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2.5 text-sm font-mono text-gray-900 dark:text-white outline-none"
               >
                 <option value="">From</option>
-                {vertexIds.map((v) => (
-                  <option key={v} value={v}>
-                    {v}
-                  </option>
-                ))}
+                {vertexIds.map((v) => <option key={v} value={v}>{v}</option>)}
               </select>
               <span className="text-gray-400 text-xs font-bold">
                 {config.directed ? "→" : "—"}
@@ -1113,11 +1050,7 @@ export function GraphCalculator() {
                 className="flex-1 bg-gray-50 dark:bg-[#131820] border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2.5 text-sm font-mono text-gray-900 dark:text-white outline-none"
               >
                 <option value="">To</option>
-                {vertexIds.map((v) => (
-                  <option key={v} value={v}>
-                    {v}
-                  </option>
-                ))}
+                {vertexIds.map((v) => <option key={v} value={v}>{v}</option>)}
               </select>
               {config.weighted && (
                 <input
@@ -1147,9 +1080,7 @@ export function GraphCalculator() {
                     key={i}
                     className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-mono bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
                   >
-                    {e.from}
-                    {config.directed ? "→" : "—"}
-                    {e.to}
+                    {e.from}{config.directed ? "→" : "—"}{e.to}
                     {config.weighted ? `(${e.weight})` : ""}
                     <button
                       onClick={() => removeEdge(e.from, e.to)}
@@ -1165,7 +1096,7 @@ export function GraphCalculator() {
         </div>
       </div>
 
-      {/* Visualization */}
+      {/* ── Visualization ── */}
       <div className="px-4 mt-4">
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
@@ -1175,7 +1106,7 @@ export function GraphCalculator() {
               </h3>
               <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-0.5">
                 {vertexIds.length > 0
-                  ? `${vertexIds.length} vertices · ${edges.length} edges · drag nodes, tap to select`
+                  ? `${vertexIds.length} vertices · ${edges.length} edges · drag nodes · double-tap two nodes to connect`
                   : "Add vertices to begin"}
               </p>
             </div>
@@ -1196,9 +1127,7 @@ export function GraphCalculator() {
             {vertexIds.length === 0 || !vizContent ? (
               <div className="flex flex-col items-center justify-center h-48 gap-3">
                 <Share2 className="w-10 h-10 text-gray-300 dark:text-gray-700" />
-                <p className="text-sm text-gray-400 dark:text-gray-600">
-                  No vertices yet
-                </p>
+                <p className="text-sm text-gray-400 dark:text-gray-600">No vertices yet</p>
               </div>
             ) : (
               <svg
@@ -1210,83 +1139,148 @@ export function GraphCalculator() {
                 onMouseUp={handleSvgMouseUp}
               >
                 <defs>
-                  <marker
-                    id="arr"
-                    markerWidth="9"
-                    markerHeight="9"
-                    refX="7"
-                    refY="3.5"
-                    orient="auto"
-                  >
+                  <marker id="arr" markerWidth="9" markerHeight="9" refX="7" refY="3.5" orient="auto">
                     <path d="M0,0 L0,7 L9,3.5 z" fill={isDark ? "#4b5563" : "#9ca3af"} />
                   </marker>
-                  <marker
-                    id="arr-vis"
-                    markerWidth="9"
-                    markerHeight="9"
-                    refX="7"
-                    refY="3.5"
-                    orient="auto"
-                  >
+                  <marker id="arr-vis" markerWidth="9" markerHeight="9" refX="7" refY="3.5" orient="auto">
                     <path d="M0,0 L0,7 L9,3.5 z" fill="#facc15" />
                   </marker>
-                  <marker
-                    id="arr-mst"
-                    markerWidth="9"
-                    markerHeight="9"
-                    refX="7"
-                    refY="3.5"
-                    orient="auto"
-                  >
+                  <marker id="arr-mst" markerWidth="9" markerHeight="9" refX="7" refY="3.5" orient="auto">
                     <path d="M0,0 L0,7 L9,3.5 z" fill="#10b981" />
                   </marker>
                 </defs>
 
                 <GridBg W={svgWidth} H={svgHeight} isDark={isDark} />
 
-                {/* Edges */}
-                {renderedEdges.map((re, i) => (
-                  <g key={i}>
-                    <path
-                      d={re.d}
-                      fill="none"
-                      stroke={edgeStroke(re.edge)}
-                      strokeWidth={edgeStrokeW(re.edge)}
-                      strokeDasharray={
-                        activeResult?.type === "kruskal" &&
-                        !edgeMarker(re.edge)
-                          ? "4 3"
-                          : undefined
-                      }
-                      markerEnd={edgeMarker(re.edge)}
-                    />
-                    {config.weighted && re.edge.from !== re.edge.to && (
-                      <g>
-                        <rect
-                          x={re.midX - 11}
-                          y={re.midY - 7}
-                          width={22}
-                          height={13}
-                          rx={3}
-                          fill={isDark ? "#0f172a" : "#f8fafc"}
-                          fillOpacity={0.9}
-                        />
-                        <text
-                          x={re.midX}
-                          y={re.midY + 2}
-                          textAnchor="middle"
-                          fontSize={9}
-                          fontFamily="ui-monospace,monospace"
-                          fill={isDark ? "#94a3b8" : "#64748b"}
-                        >
-                          {re.edge.weight}
-                        </text>
-                      </g>
-                    )}
-                  </g>
-                ))}
+                {/* ── Edges ── */}
+                {renderedEdges.map((re: any, i: number) => {
+                  const ek = edgeKey(re.edge);
+                  const isSelected = ek === selectedEdgeKey;
+                  const isEditing = ek === editingEdgeKey;
 
-                {/* Nodes */}
+                  return (
+                    <g
+                      key={i}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedEdgeKey((prev) => (prev === ek ? null : ek));
+                        if (editingEdgeKey && editingEdgeKey !== ek) setEditingEdgeKey(null);
+                      }}
+                      style={{ cursor: "pointer" }}
+                    >
+                      {/* Edge path */}
+                      <path
+                        d={re.d}
+                        fill="none"
+                        stroke={edgeStroke(re.edge)}
+                        strokeWidth={edgeStrokeW(re.edge)}
+                        strokeDasharray={
+                          activeResult?.type === "kruskal" && !edgeMarker(re.edge)
+                            ? "4 3"
+                            : undefined
+                        }
+                        markerEnd={edgeMarker(re.edge)}
+                      />
+
+                      {/* Weight pill / inline editor */}
+                      {config.weighted && re.edge.from !== re.edge.to && (
+                        <g
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (!isEditing) {
+                              setEditingEdgeKey(ek);
+                              setEditingWeight(String(re.edge.weight));
+                            }
+                          }}
+                          style={{ cursor: isEditing ? "text" : "pointer" }}
+                        >
+                          <rect
+                            x={re.midX - 11}
+                            y={re.midY - 7}
+                            width={22}
+                            height={13}
+                            rx={3}
+                            fill={isDark ? "#0f172a" : "#f8fafc"}
+                            fillOpacity={0.9}
+                            stroke={isSelected ? "#3b82f6" : "transparent"}
+                            strokeWidth={isSelected ? 0.8 : 0}
+                          />
+                          {isEditing ? (
+                            <foreignObject x={re.midX - 11} y={re.midY - 7} width={22} height={13}>
+                              <input
+                                value={editingWeight}
+                                onChange={(e) => setEditingWeight(e.target.value)}
+                                onBlur={() => {
+                                  const w = Number(editingWeight);
+                                  if (!Number.isNaN(w)) {
+                                    setEdges((prev) =>
+                                      prev.map((ed) =>
+                                        edgeKey(ed) === ek ? { ...ed, weight: w } : ed
+                                      )
+                                    );
+                                  }
+                                  setEditingEdgeKey(null);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                                  if (e.key === "Escape") setEditingEdgeKey(null);
+                                }}
+                                className="w-full h-full text-[9px] font-mono bg-transparent text-center text-gray-800 dark:text-gray-100 outline-none"
+                              />
+                            </foreignObject>
+                          ) : (
+                            <text
+                              x={re.midX}
+                              y={re.midY + 2}
+                              textAnchor="middle"
+                              fontSize={9}
+                              fontFamily="ui-monospace,monospace"
+                              fill={isDark ? "#94a3b8" : "#64748b"}
+                            >
+                              {re.edge.weight}
+                            </text>
+                          )}
+                        </g>
+                      )}
+
+                      {/* Inline delete chip */}
+                      {isSelected && (
+                        <g
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeEdge(re.edge.from, re.edge.to);
+                            setSelectedEdgeKey(null);
+                            if (editingEdgeKey === ek) setEditingEdgeKey(null);
+                          }}
+                          style={{ cursor: "pointer" }}
+                        >
+                          <rect
+                            x={re.midX + 12}
+                            y={re.midY - 7}
+                            width={14}
+                            height={14}
+                            rx={3}
+                            fill={isDark ? "#111827" : "#fee2e2"}
+                            stroke={isDark ? "#b91c1c" : "#ef4444"}
+                            strokeWidth={0.7}
+                          />
+                          <text
+                            x={re.midX + 19}
+                            y={re.midY + 2}
+                            textAnchor="middle"
+                            fontSize={9}
+                            fontFamily="ui-monospace,monospace"
+                            fill={isDark ? "#fecaca" : "#b91c1c"}
+                          >
+                            ×
+                          </text>
+                        </g>
+                      )}
+                    </g>
+                  );
+                })}
+
+                {/* ── Nodes ── */}
                 {vertexIds.map((id) => {
                   const pos = positions.get(id);
                   if (!pos) return null;
@@ -1296,35 +1290,36 @@ export function GraphCalculator() {
                     <g
                       key={id}
                       style={{ cursor: "pointer" }}
-                      onMouseDown={(e) =>
-                        handleNodeMouseDown(id, e, pos as Position)
-                      }
+                      onMouseDown={(e) => handleNodeMouseDown(id, e, pos as Position)}
                       onClick={() => setSelV((s) => (s === id ? "" : id))}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        handleNodeDoubleClick(id);
+                      }}
                     >
                       {id === selV && (
                         <circle
-                          cx={pos.x}
-                          cy={pos.y}
-                          r={NODE_R + 5}
-                          fill="none"
-                          stroke="#3b82f6"
-                          strokeWidth={2}
-                          opacity={0.3}
+                          cx={pos.x} cy={pos.y} r={NODE_R + 5}
+                          fill="none" stroke="#3b82f6" strokeWidth={2} opacity={0.3}
+                        />
+                      )}
+                      {id === dtapFirst && (
+                        <circle
+                          cx={pos.x} cy={pos.y} r={NODE_R + 7}
+                          fill="none" stroke="#8b5cf6" strokeWidth={2}
+                          opacity={0.5}
+                          strokeDasharray="4 3"
                         />
                       )}
                       <circle
-                        cx={pos.x}
-                        cy={pos.y}
-                        r={NODE_R}
+                        cx={pos.x} cy={pos.y} r={NODE_R}
                         fill={nodeFill(id)}
                         stroke={nodeStroke(id)}
                         strokeWidth={id === selV ? 2 : 1.5}
                       />
                       <text
-                        x={pos.x}
-                        y={pos.y}
-                        textAnchor="middle"
-                        dy="0.35em"
+                        x={pos.x} y={pos.y}
+                        textAnchor="middle" dy="0.35em"
                         fill={nodeText(id)}
                         fontSize={lbl.length > 1 ? 11 : 13}
                         fontWeight="700"
@@ -1342,33 +1337,35 @@ export function GraphCalculator() {
 
           {/* Legend */}
           {vertexIds.length > 0 && (
-            <div className="px-4 py-2 bg-gray-50 dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 flex flex-wrap gap-4">
+            <div className="px-4 py-2 bg-gray-50 dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 flex flex-wrap gap-4 items-center">
               {[
                 ["#3b82f6", "Selected"],
+                ["#8b5cf6", "Connecting…"],
                 ["#facc15", "BFS/DFS visited"],
                 ["#10b981", "MST edge/node"],
               ].map(([col, lbl]) => (
-                <div key={lbl} className="flex items-center gap-1.5">
-                  <div className="w-3 h-3 rounded-full" style={{ background: col }} />
-                  <span className="text-[10px] text-gray-500 dark:text-gray-400">
-                    {lbl}
-                  </span>
+                <div key={lbl as string} className="flex items-center gap-1.5">
+                  <div className="w-3 h-3 rounded-full" style={{ background: col as string }} />
+                  <span className="text-[10px] text-gray-500 dark:text-gray-400">{lbl as string}</span>
                 </div>
               ))}
+              {selectedEdgeKey && (
+                <span className="text-[10px] text-blue-500 dark:text-blue-400 ml-auto">
+                  Edge selected · click weight to edit · click × to delete
+                </span>
+              )}
             </div>
           )}
         </div>
       </div>
 
-      {/* Algorithm Panel */}
+      {/* ── Algorithm Panel ── */}
       <div className="px-4 mt-4">
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
-              Algorithms
-            </h3>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Algorithms</h3>
             <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-0.5">
-              Tap a row to highlight behavior on the canvas
+              Tap BFS/DFS to replay traversal once. Edits on the graph update results instantly.
             </p>
           </div>
 
@@ -1377,18 +1374,13 @@ export function GraphCalculator() {
               {/* Start vertex */}
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1.5">
-                  Start Vertex{" "}
-                  <span className="font-normal normal-case text-gray-400">
-                    (BFS / DFS)
-                  </span>
+                  Start Vertex <span className="font-normal normal-case text-gray-400">(BFS / DFS)</span>
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {vertexIds.map((id) => (
                     <button
                       key={id}
-                      onClick={() =>
-                        setAlgoStart((s) => (s === id ? "" : id))
-                      }
+                      onClick={() => setAlgoStart((s) => (s === id ? "" : id))}
                       className={`px-2.5 py-0.5 rounded-full text-xs font-mono font-bold transition-all ${
                         algoStart === id
                           ? "bg-indigo-600 text-white ring-2 ring-indigo-400"
@@ -1421,12 +1413,8 @@ export function GraphCalculator() {
                 ))}
                 <span className="text-[10px] text-gray-400 dark:text-gray-600">
                   {neighborOrder === "lvf"
-                    ? config.weighted
-                      ? "lowest weight first"
-                      : "A → Z"
-                    : config.weighted
-                    ? "highest weight first"
-                    : "Z → A"}
+                    ? config.weighted ? "lowest weight first" : "A → Z"
+                    : config.weighted ? "highest weight first" : "Z → A"}
                 </span>
               </div>
             </div>
@@ -1434,13 +1422,14 @@ export function GraphCalculator() {
 
           {vertexIds.length > 0 ? (
             <div className="divide-y divide-gray-100 dark:divide-gray-700">
+
               {/* BFS row */}
               {(() => {
                 const r = algoResults.bfs;
                 const isActive = activeAlgo === "bfs";
                 return (
                   <button
-                    onClick={() => setActiveAlgo("bfs")}
+                    onClick={() => { setActiveAlgo("bfs"); setBfsRunId((n) => n + 1); }}
                     className={`w-full text-left px-4 py-3 transition-all ${
                       isActive
                         ? "bg-blue-50 dark:bg-blue-900/20"
@@ -1449,19 +1438,15 @@ export function GraphCalculator() {
                   >
                     <div className="flex items-start gap-3">
                       <div className="flex-shrink-0 w-20 pt-0.5">
-                        <span
-                          className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${
-                            isActive
-                              ? "bg-blue-600 text-white"
-                              : "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
-                          }`}
-                        >
+                        <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${
+                          isActive
+                            ? "bg-blue-600 text-white"
+                            : "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
+                        }`}>
                           BFS
                         </span>
                         {r?.startVertex && (
-                          <p className="text-[9px] text-gray-400 mt-1 font-mono">
-                            from {r.startVertex}
-                          </p>
+                          <p className="text-[9px] text-gray-400 mt-1 font-mono">from {r.startVertex}</p>
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
@@ -1473,9 +1458,7 @@ export function GraphCalculator() {
                                   {v}
                                 </span>
                                 {i < r.order.length - 1 && (
-                                  <span className="text-[9px] text-gray-300 dark:text-gray-600">
-                                    →
-                                  </span>
+                                  <span className="text-[9px] text-gray-300 dark:text-gray-600">→</span>
                                 )}
                               </React.Fragment>
                             ))}
@@ -1487,11 +1470,9 @@ export function GraphCalculator() {
                           Queue · level-order traversal
                         </p>
                       </div>
-                      <div
-                        className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${
-                          isActive ? "bg-blue-500" : "bg-transparent"
-                        }`}
-                      />
+                      <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${
+                        isActive ? "bg-blue-500" : "bg-transparent"
+                      }`} />
                     </div>
                   </button>
                 );
@@ -1503,7 +1484,7 @@ export function GraphCalculator() {
                 const isActive = activeAlgo === "dfs";
                 return (
                   <button
-                    onClick={() => setActiveAlgo("dfs")}
+                    onClick={() => { setActiveAlgo("dfs"); setDfsRunId((n) => n + 1); }}
                     className={`w-full text-left px-4 py-3 transition-all ${
                       isActive
                         ? "bg-purple-50 dark:bg-purple-900/20"
@@ -1512,19 +1493,15 @@ export function GraphCalculator() {
                   >
                     <div className="flex items-start gap-3">
                       <div className="flex-shrink-0 w-20 pt-0.5">
-                        <span
-                          className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${
-                            isActive
-                              ? "bg-purple-600 text-white"
-                              : "bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300"
-                          }`}
-                        >
+                        <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${
+                          isActive
+                            ? "bg-purple-600 text-white"
+                            : "bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300"
+                        }`}>
                           DFS
                         </span>
                         {r?.startVertex && (
-                          <p className="text-[9px] text-gray-400 mt-1 font-mono">
-                            from {r.startVertex}
-                          </p>
+                          <p className="text-[9px] text-gray-400 mt-1 font-mono">from {r.startVertex}</p>
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
@@ -1536,9 +1513,7 @@ export function GraphCalculator() {
                                   {v}
                                 </span>
                                 {i < r.order.length - 1 && (
-                                  <span className="text-[9px] text-gray-300 dark:text-gray-600">
-                                    →
-                                  </span>
+                                  <span className="text-[9px] text-gray-300 dark:text-gray-600">→</span>
                                 )}
                               </React.Fragment>
                             ))}
@@ -1550,11 +1525,9 @@ export function GraphCalculator() {
                           Stack · depth-first traversal
                         </p>
                       </div>
-                      <div
-                        className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${
-                          isActive ? "bg-purple-500" : "bg-transparent"
-                        }`}
-                      />
+                      <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${
+                        isActive ? "bg-purple-500" : "bg-transparent"
+                      }`} />
                     </div>
                   </button>
                 );
@@ -1575,13 +1548,11 @@ export function GraphCalculator() {
                   >
                     <div className="flex items-start gap-3">
                       <div className="flex-shrink-0 w-20 pt-0.5">
-                        <span
-                          className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${
-                            isActive
-                              ? "bg-emerald-600 text-white"
-                              : "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300"
-                          }`}
-                        >
+                        <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${
+                          isActive
+                            ? "bg-emerald-600 text-white"
+                            : "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300"
+                        }`}>
                           Kruskal
                         </span>
                         {r?.possible && (
@@ -1609,29 +1580,19 @@ export function GraphCalculator() {
                                 className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-300/30"
                               >
                                 {e.from}—{e.to}
-                                {config.weighted && (
-                                  <span className="opacity-60">
-                                    ({e.weight})
-                                  </span>
-                                )}
+                                {config.weighted && <span className="opacity-60">({e.weight})</span>}
                               </span>
                             ))}
                             {(r.skippedEdges ?? []).length > 0 && (
                               <>
-                                <span className="text-[9px] text-gray-300 dark:text-gray-600 mx-0.5">
-                                  │
-                                </span>
+                                <span className="text-[9px] text-gray-300 dark:text-gray-600 mx-0.5">│</span>
                                 {(r.skippedEdges ?? []).map((e, i) => (
                                   <span
                                     key={`${e.from}-${e.to}-skip-${i}`}
                                     className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md text-[10px] font-mono bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 line-through"
                                   >
                                     {e.from}—{e.to}
-                                    {config.weighted && (
-                                      <span className="no-underline opacity-60">
-                                        ({e.weight})
-                                      </span>
-                                    )}
+                                    {config.weighted && <span className="no-underline opacity-60">({e.weight})</span>}
                                   </span>
                                 ))}
                               </>
@@ -1642,11 +1603,9 @@ export function GraphCalculator() {
                           Greedy · sort by weight · DSU · O(E log E)
                         </p>
                       </div>
-                      <div
-                        className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${
-                          isActive ? "bg-emerald-500" : "bg-transparent"
-                        }`}
-                      />
+                      <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${
+                        isActive ? "bg-emerald-500" : "bg-transparent"
+                      }`} />
                     </div>
                   </button>
                 );
@@ -1662,7 +1621,7 @@ export function GraphCalculator() {
         </div>
       </div>
 
-      {/* Adjacency list / matrix */}
+      {/* ── Adjacency list / matrix ── */}
       {vertexIds.length > 0 && (
         <div className="px-4 mt-4">
           <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
@@ -1708,21 +1667,13 @@ export function GraphCalculator() {
                             {nb}
                             {config.weighted && (
                               <span className="opacity-70">
-                                (
-                                {
-                                  edges.find(
-                                    (e) => e.from === v && e.to === nb
-                                  )?.weight
-                                }
-                                )
+                                ({edges.find((e) => e.from === v && e.to === nb)?.weight})
                               </span>
                             )}
                           </span>
                         ))
                       ) : (
-                        <span className="text-xs text-gray-400 italic">
-                          no edges
-                        </span>
+                        <span className="text-xs text-gray-400 italic">no edges</span>
                       )}
                     </div>
                   </div>
@@ -1735,10 +1686,7 @@ export function GraphCalculator() {
                     <tr>
                       <th className="w-8 h-8" />
                       {vertexIds.map((v) => (
-                        <th
-                          key={v}
-                          className="w-8 h-8 text-center text-gray-500 dark:text-gray-400 font-bold"
-                        >
+                        <th key={v} className="w-8 h-8 text-center text-gray-500 dark:text-gray-400 font-bold">
                           {v}
                         </th>
                       ))}
@@ -1747,9 +1695,7 @@ export function GraphCalculator() {
                   <tbody>
                     {vertexIds.map((v, i) => (
                       <tr key={v}>
-                        <td className="w-8 h-8 text-center text-gray-500 dark:text-gray-400 font-bold pr-2">
-                          {v}
-                        </td>
+                        <td className="w-8 h-8 text-center text-gray-500 dark:text-gray-400 font-bold pr-2">{v}</td>
                         {adjMat[i].map((val, j) => (
                           <td
                             key={`${i}-${j}`}
@@ -1772,13 +1718,11 @@ export function GraphCalculator() {
         </div>
       )}
 
-      {/* Presets */}
+      {/* ── Presets ── */}
       <div className="px-4 mt-4">
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
-              Presets
-            </h3>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Presets</h3>
             <p className="text-[10px] text-gray-400 dark:text-gray-600 mt-0.5">
               Tap to load a sample graph
             </p>
@@ -1792,8 +1736,7 @@ export function GraphCalculator() {
               >
                 {p.label}
                 <span className="ml-1.5 text-[9px] text-gray-400 font-normal">
-                  {p.directed ? "dir" : "undir"}
-                  {p.weighted ? " · w" : ""}
+                  {p.directed ? "dir" : "undir"}{p.weighted ? " · w" : ""}
                 </span>
               </button>
             ))}
@@ -1801,7 +1744,7 @@ export function GraphCalculator() {
         </div>
       </div>
 
-      {/* Copy button */}
+      {/* ── Copy button ── */}
       {vertexIds.length > 0 && (
         <div className="px-4 mt-4 mb-6">
           <button
@@ -1809,18 +1752,14 @@ export function GraphCalculator() {
             className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-50 transition-all shadow-sm"
           >
             {copied ? (
-              <>
-                <Check className="w-4 h-4 text-emerald-500" /> Copied!
-              </>
+              <><Check className="w-4 h-4 text-emerald-500" /> Copied!</>
             ) : (
-              <>
-                <Copy className="w-4 h-4" /> Copy Graph & Results
-              </>
+              <><Copy className="w-4 h-4" /> Copy Graph & Results</>
             )}
           </button>
         </div>
       )}
+
     </div>
   );
 }
-
