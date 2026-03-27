@@ -144,6 +144,20 @@ function staticRouteEdge(
   };
 }
 
+// ─── Vertex label comparison ──────────────────────────────────────────────────
+// Compares two vertex label strings correctly:
+//   - If BOTH labels are pure integers → numeric comparison (10 > 9, 100 > 90)
+//   - Otherwise                        → locale-aware string comparison
+// This fixes the bug where "90" > "100" under lexicographic ordering.
+
+function compareLabels(a: string, b: string): number {
+  const na = Number(a), nb = Number(b);
+  if (Number.isFinite(na) && Number.isFinite(nb) && String(na) === a && String(nb) === b) {
+    return na - nb; // true numeric sort: 9 < 10 < 90 < 100 < 110
+  }
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+}
+
 // ─── Graph algorithms ─────────────────────────────────────────────────────────
 
 function buildAdj(
@@ -331,27 +345,46 @@ export function GraphCalculator() {
     [vertexIds, edges, config.directed]
   );
 
+  // ─── sortedAdj ───────────────────────────────────────────────────────────────
+  // BUG FIX: Previously used `a.localeCompare(b)` which treats vertex labels as
+  // plain strings. This caused "90" > "100" and "110" to always sort last because
+  // JS string comparison is char-by-char ("9" > "1", "1" < "9").
+  //
+  // Fix: use `compareLabels()` which applies true numeric sort when both labels
+  // are integers (9 < 10 < 90 < 100 < 110), and falls back to locale-aware
+  // string sort for mixed/alphabetic labels. Weighted graphs still sort by
+  // edge weight (a number), which was already correct.
+
   const sortedAdj = useMemo(() => {
     const sorted = new Map<string, string[]>();
     for (const [v, neighbors] of adj) {
       const s = [...neighbors].sort((a, b) => {
         if (config.weighted) {
+          // weighted: sort by the actual edge weight (numeric) — unchanged
           const wa = Number(
-            edges.find((e) => e.from === v && e.to === a)?.weight ?? 0
+            edges.find(
+              (e) =>
+                e.from === v && e.to === a ||
+                (!config.directed && e.from === a && e.to === v)
+            )?.weight ?? 0
           );
           const wb = Number(
-            edges.find((e) => e.from === v && e.to === b)?.weight ?? 0
+            edges.find(
+              (e) =>
+                e.from === v && e.to === b ||
+                (!config.directed && e.from === b && e.to === v)
+            )?.weight ?? 0
           );
           return neighborOrder === "lvf" ? wa - wb : wb - wa;
         }
-        return neighborOrder === "lvf"
-          ? a.localeCompare(b)
-          : b.localeCompare(a);
+        // unweighted: compare labels with proper numeric-aware sort
+        const cmp = compareLabels(a, b);
+        return neighborOrder === "lvf" ? cmp : -cmp;
       });
       sorted.set(v, s);
     }
     return sorted;
-  }, [adj, edges, config.weighted, neighborOrder]);
+  }, [adj, edges, config.weighted, config.directed, neighborOrder]);
 
   // ─── Auto-run algorithms ──────────────────────────────────────────────────────
 
@@ -730,6 +763,7 @@ export function GraphCalculator() {
     if (draggingId) setDraggingId(null);
     if (dragOffset) setDragOffset(null);
   }, [draggingId, dragOffset]);
+
   // ─── Visualization memo ───────────────────────────────────────────────────────
 
   const vizContent = useMemo(() => {
@@ -1413,8 +1447,8 @@ export function GraphCalculator() {
                 ))}
                 <span className="text-[10px] text-gray-400 dark:text-gray-600">
                   {neighborOrder === "lvf"
-                    ? config.weighted ? "lowest weight first" : "A → Z"
-                    : config.weighted ? "highest weight first" : "Z → A"}
+                    ? config.weighted ? "lowest weight first" : "A → Z / 1 → ∞"
+                    : config.weighted ? "highest weight first" : "Z → A / ∞ → 1"}
                 </span>
               </div>
             </div>
@@ -1457,7 +1491,7 @@ export function GraphCalculator() {
                                 <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 font-mono font-bold text-[10px] ring-1 ring-yellow-300/40">
                                   {v}
                                 </span>
-                                {i < r.order.length - 1 && (
+                                {i < r.order!.length - 1 && (
                                   <span className="text-[9px] text-gray-300 dark:text-gray-600">→</span>
                                 )}
                               </React.Fragment>
@@ -1512,7 +1546,7 @@ export function GraphCalculator() {
                                 <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 font-mono font-bold text-[10px] ring-1 ring-yellow-300/40">
                                   {v}
                                 </span>
-                                {i < r.order.length - 1 && (
+                                {i < r.order!.length - 1 && (
                                   <span className="text-[9px] text-gray-300 dark:text-gray-600">→</span>
                                 )}
                               </React.Fragment>

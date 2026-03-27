@@ -2,89 +2,18 @@ import { useState, useCallback } from 'react';
 import { ChevronLeft, HelpCircle, MoreVertical, Moon, Sun, Plus, Trash2, Copy, Check, AlertTriangle } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import { useTheme } from '../contexts/ThemeContext';
-
-// ─── Header ───────────────────────────────────────────────────────────────────
-function SubnetHeader() {
-  const navigate = useNavigate();
-  const { isDark, toggleTheme } = useTheme();
-  return (
-    <div className="relative bg-white dark:bg-gray-800 rounded-b-3xl shadow-sm pb-4">
-      <div className="px-4 pt-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <button onClick={() => navigate('/')} className="w-10 h-10 flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-all">
-              <ChevronLeft className="w-5 h-5 text-gray-700 dark:text-gray-300" />
-            </button>
-            <div>
-              <p className="text-xs font-medium text-gray-600 dark:text-gray-400">Toolbox</p>
-              <h1 className="text-xl font-bold text-gray-900 dark:text-white">Subnet Calculator</h1>
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={toggleTheme} className="w-10 h-10 flex items-center justify-center bg-gray-100 dark:bg-gray-700 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 transition-all">
-              {isDark ? <Moon className="w-4 h-4 text-gray-300" /> : <Sun className="w-4 h-4 text-yellow-600" />}
-            </button>
-            <button className="w-10 h-10 flex items-center justify-center bg-gray-100 dark:bg-gray-700 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 transition-all">
-              <HelpCircle className="w-4 h-4 text-gray-700 dark:text-gray-300" />
-            </button>
-            <button className="w-10 h-10 flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-all">
-              <MoreVertical className="w-4 h-4 text-gray-700 dark:text-gray-300" />
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Networking helpers ────────────────────────────────────────────────────────
-function ipToInt(ip: string): number {
-  const parts = ip.split('.').map(Number);
-  return ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
-}
-function intToIp(n: number): string {
-  return [
-    (n >>> 24) & 0xff,
-    (n >>> 16) & 0xff,
-    (n >>> 8)  & 0xff,
-    n          & 0xff,
-  ].join('.');
-}
-function cidrToMask(cidr: number): number {
-  return cidr === 0 ? 0 : (0xffffffff << (32 - cidr)) >>> 0;
-}
-function maskToDotted(mask: number): string {
-  return intToIp(mask);
-}
-function bitsNeeded(hosts: number): number {
-  // need hosts + 2 (network + broadcast) but at least 2
-  let bits = 0;
-  while (Math.pow(2, bits) < hosts + 2) bits++;
-  return bits;
-}
-function isValidIp(ip: string): boolean {
-  const parts = ip.split('.');
-  if (parts.length !== 4) return false;
-  return parts.every(p => {
-    const n = parseInt(p);
-    return !isNaN(n) && n >= 0 && n <= 255 && p === String(n);
-  });
-}
-function isValidCidr(cidr: number): boolean {
-  return cidr >= 0 && cidr <= 32;
-}
-
-interface Subnet {
-  name: string;
-  network: string;
-  mask: string;
-  cidr: number;
-  broadcast: string;
-  firstHost: string;
-  lastHost: string;
-  usableHosts: number;
-  totalHosts: number;
-}
+import { CalculatorHeader } from '../components/shared/CalculatorHeader';
+import { SubnetResultsTable } from '../components/subnet/SubnetResultsTable';
+import {
+  ipToInt,
+  intToIp,
+  cidrToMask,
+  maskToDotted,
+  bitsNeeded,
+  isValidIp,
+  isValidCidr
+} from '../components/subnet/utils';
+import type { Subnet, VLSMRequirement } from '../components/subnet/types';
 
 // ─── FLSM Calculator ──────────────────────────────────────────────────────────
 function FLSMCalculator() {
@@ -235,8 +164,6 @@ function FLSMCalculator() {
 }
 
 // ─── VLSM Calculator ──────────────────────────────────────────────────────────
-interface VLSMRequirement { id: number; name: string; hosts: string; }
-
 function VLSMCalculator() {
   const [networkIp, setNetworkIp] = useState('192.168.1.0');
   const [networkCidr, setNetworkCidr] = useState(24);
@@ -423,67 +350,6 @@ function VLSMCalculator() {
   );
 }
 
-// ─── Shared Results Table ──────────────────────────────────────────────────────
-interface SubnetResultsTableProps {
-  subnets: (Subnet & { requested?: number })[];
-  onCopy: () => void;
-  copied: boolean;
-  showRequested?: boolean;
-}
-
-function SubnetResultsTable({ subnets, onCopy, copied, showRequested }: SubnetResultsTableProps) {
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-          {subnets.length} subnet{subnets.length !== 1 ? 's' : ''} generated
-        </p>
-        <button
-          onClick={onCopy}
-          className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 bg-blue-50 dark:bg-blue-900/20 px-3 py-1.5 rounded-lg transition-colors"
-        >
-          {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-          {copied ? 'Copied!' : 'Copy all'}
-        </button>
-      </div>
-
-      {subnets.map((s, i) => (
-        <div key={i} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-          {/* Subnet title bar */}
-          <div className="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
-            <span className="text-sm font-bold text-gray-900 dark:text-white">{s.name}</span>
-            <span className="text-xs font-mono font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-2 py-0.5 rounded-full">
-              /{s.cidr}
-            </span>
-          </div>
-          {/* Details grid */}
-          <div className="px-4 py-3 grid grid-cols-2 gap-y-2 gap-x-4">
-            <Field label="Network" value={s.network} mono />
-            <Field label="Subnet Mask" value={s.mask} mono />
-            <Field label="Broadcast" value={s.broadcast} mono />
-            <Field label="Usable Hosts" value={s.usableHosts.toLocaleString()} />
-            <Field label="First Host" value={s.firstHost} mono />
-            <Field label="Last Host" value={s.lastHost} mono />
-            {showRequested && s.requested !== undefined && (
-              <Field label="Requested" value={`${s.requested} hosts`} />
-            )}
-            <Field label="Block Size" value={s.totalHosts.toLocaleString()} />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div>
-      <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-0.5">{label}</p>
-      <p className={`text-sm text-gray-900 dark:text-white ${mono ? 'font-mono' : 'font-medium'}`}>{value}</p>
-    </div>
-  );
-}
-
 // ─── Page Shell ───────────────────────────────────────────────────────────────
 type CalcMode = 'FLSM' | 'VLSM';
 
@@ -492,7 +358,7 @@ export function SubnetCalculator() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-[#0f1419] pb-8">
-      <SubnetHeader />
+      <CalculatorHeader title="Subnet Calculator" />
 
       {/* Mode toggle */}
       <div className="px-4 mt-4">

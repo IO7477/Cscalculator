@@ -1,76 +1,8 @@
 import { useState, useCallback } from 'react';
-import { ChevronLeft, HelpCircle, MoreVertical, Moon, Sun, Delete } from 'lucide-react';
-import { useNavigate } from 'react-router';
-import { useTheme } from '../contexts/ThemeContext';
-
-// ─── Types ───────────────────────────────────────────────────────────────────
-type AngleMode = 'DEG' | 'RAD';
-
-// ─── Header ──────────────────────────────────────────────────────────────────
-function ScientificHeader() {
-  const navigate = useNavigate();
-  const { isDark, toggleTheme } = useTheme();
-
-  return (
-    <div className="relative bg-white dark:bg-gray-800 rounded-b-3xl shadow-sm pb-4">
-      <div className="px-4 pt-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate('/')}
-              className="w-10 h-10 flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-all duration-200"
-              aria-label="Back"
-            >
-              <ChevronLeft className="w-5 h-5 text-gray-700 dark:text-gray-300" />
-            </button>
-            <div>
-              <p className="text-xs font-medium text-gray-600 dark:text-gray-400">Toolbox</p>
-              <h1 className="text-xl font-bold text-gray-900 dark:text-white">Scientific Calculator</h1>
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={toggleTheme}
-              className="w-10 h-10 flex items-center justify-center bg-gray-100 dark:bg-gray-700 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 transition-all duration-200"
-              aria-label="Toggle theme"
-            >
-              {isDark
-                ? <Moon className="w-4 h-4 text-gray-300" />
-                : <Sun className="w-4 h-4 text-yellow-600" />}
-            </button>
-            <button className="w-10 h-10 flex items-center justify-center bg-gray-100 dark:bg-gray-700 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 transition-all duration-200">
-              <HelpCircle className="w-4 h-4 text-gray-700 dark:text-gray-300" />
-            </button>
-            <button className="w-10 h-10 flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-all duration-200">
-              <MoreVertical className="w-4 h-4 text-gray-700 dark:text-gray-300" />
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-function toAngle(val: number, mode: AngleMode) {
-  return mode === 'DEG' ? (val * Math.PI) / 180 : val;
-}
-function fromAngle(val: number, mode: AngleMode) {
-  return mode === 'DEG' ? (val * 180) / Math.PI : val;
-}
-function factorial(n: number): number {
-  if (n < 0 || !Number.isInteger(n)) return NaN;
-  if (n > 170) return Infinity;
-  let r = 1;
-  for (let i = 2; i <= n; i++) r *= i;
-  return r;
-}
-function formatDisplay(val: string) {
-  if (val.length <= 14) return val;
-  const n = parseFloat(val);
-  if (isNaN(n)) return val.slice(0, 14);
-  return n.toExponential(6);
-}
+import { CalculatorHeader } from '../components/shared/CalculatorHeader';
+import { ScientificButton } from '../components/scientific/ScientificButton';
+import { toAngle, fromAngle, factorial, formatDisplay } from '../components/scientific/utils';
+import type { AngleMode, BtnDef } from '../components/scientific/types';
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 export function ScientificCalculator() {
@@ -320,7 +252,7 @@ export function ScientificCalculator() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-[#0f1419] pb-6">
-      <ScientificHeader />
+      <CalculatorHeader title="Scientific Calculator" />
 
       {/* ── Display ─────────────────────────────────────────────────── */}
       <div className="mx-4 mt-4 rounded-2xl bg-gray-900 dark:bg-[#0a0e14] p-4 shadow-lg border border-gray-800 dark:border-gray-700">
