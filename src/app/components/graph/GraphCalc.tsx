@@ -23,264 +23,12 @@ import {
 } from "lucide-react";
 import { useTheme } from "../contexts/ThemeContext";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface Edge {
-  from: string;
-  to: string;
-  weight: number;
-}
-
-interface GraphConfig {
-  directed: boolean;
-  weighted: boolean;
-}
-
-type AlgoType = "bfs" | "dfs" | "kruskal";
-
-interface AlgoResult {
-  type: AlgoType;
-  order?: string[];
-  startVertex?: string;
-  mstEdges?: Edge[];
-  mstCost?: number;
-  skippedEdges?: Edge[];
-  possible?: boolean;
-}
-
-interface AlgoResults {
-  bfs: AlgoResult | null;
-  dfs: AlgoResult | null;
-  kruskal: AlgoResult | null;
-}
-
-interface Position {
-  x: number;
-  y: number;
-}
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const NODE_R = 22;
-const CELL = 72;
-
-function gridDims(n: number) {
-  let cols: number, rows: number;
-  if (n <= 3) {
-    cols = 4; rows = 4;
-  } else if (n <= 4) {
-    cols = 5; rows = 5;
-  } else if (n <= 8) {
-    cols = 6; rows = 6;
-  } else if (n <= 12) {
-    cols = 8; rows = 7;
-  } else {
-    cols = Math.ceil(Math.sqrt(n)) + 3;
-    rows = Math.max(cols - 1, cols);
-  }
-  const W = cols * CELL, H = rows * CELL;
-  return { cols, rows, W, H };
-}
-
-// ─── Static layout — circle arrangement ──────────────────────────────────────
-
-function staticLayout(vids: string[], W: number, H: number) {
-  const positions = new Map<string, { x: number; y: number }>();
-  const n = vids.length;
-  if (n === 0) return positions;
-  const margin = NODE_R + 20;
-  if (n === 1) {
-    positions.set(vids[0], { x: W / 2, y: H / 2 });
-    return positions;
-  }
-  const radius = Math.min(W, H) / 2 - margin - 10;
-  vids.forEach((id, i) => {
-    const angle = (2 * Math.PI * i) / n - Math.PI / 2;
-    positions.set(id, {
-      x: W / 2 + radius * Math.cos(angle),
-      y: H / 2 + radius * Math.sin(angle),
-    });
-  });
-  return positions;
-}
-
-// ─── Static edge routing ──────────────────────────────────────────────────────
-
-function staticRouteEdge(
-  from: { x: number; y: number },
-  to: { x: number; y: number },
-  directed: boolean,
-  hasBoth: boolean,
-  isSmaller: boolean,
-  laneIndex: number = 0
-): { d: string; midX: number; midY: number } {
-  const dx = to.x - from.x, dy = to.y - from.y;
-  const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-  const ux = dx / dist, uy = dy / dist, px = -uy, py = ux;
-  const arrPad = directed ? 9 : 0;
-
-  const sx = from.x + ux * NODE_R, sy = from.y + uy * NODE_R;
-  const ex = to.x - ux * (NODE_R + arrPad), ey = to.y - uy * (NODE_R + arrPad);
-  const mx = (sx + ex) / 2, my = (sy + ey) / 2;
-
-  const baseOffset = hasBoth ? 38 : 18;
-  const laneOffset = laneIndex === 0 ? 0 : baseOffset * laneIndex;
-  const sign = isSmaller ? 1 : -1;
-
-  if (hasBoth || laneIndex !== 0) {
-    const cpx = mx + px * laneOffset * sign;
-    const cpy = my + py * laneOffset * sign;
-    return {
-      d: `M ${sx.toFixed(1)} ${sy.toFixed(1)} Q ${cpx.toFixed(1)} ${cpy.toFixed(1)} ${ex.toFixed(1)} ${ey.toFixed(1)}`,
-      midX: cpx,
-      midY: cpy,
-    };
-  }
-
-  return {
-    d: `M ${sx.toFixed(1)} ${sy.toFixed(1)} L ${ex.toFixed(1)} ${ey.toFixed(1)}`,
-    midX: mx,
-    midY: my - 8,
-  };
-}
-
-// ─── Vertex label comparison ──────────────────────────────────────────────────
-// Compares two vertex label strings correctly:
-//   - If BOTH labels are pure integers → numeric comparison (10 > 9, 100 > 90)
-//   - Otherwise                        → locale-aware string comparison
-// This fixes the bug where "90" > "100" under lexicographic ordering.
-
-function compareLabels(a: string, b: string): number {
-  const na = Number(a), nb = Number(b);
-  if (Number.isFinite(na) && Number.isFinite(nb) && String(na) === a && String(nb) === b) {
-    return na - nb; // true numeric sort: 9 < 10 < 90 < 100 < 110
-  }
-  return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
-}
-
-// ─── Graph algorithms ─────────────────────────────────────────────────────────
-
-function buildAdj(
-  vids: string[],
-  edges: Edge[],
-  directed: boolean
-): Map<string, string[]> {
-  const adj = new Map<string, string[]>();
-  for (const v of vids) adj.set(v, []);
-  for (const e of edges) {
-    adj.get(e.from)?.push(e.to);
-    if (!directed) adj.get(e.to)?.push(e.from);
-  }
-  return adj;
-}
-
-function bfs(adj: Map<string, string[]>, vids: string[], start: string): string[] {
-  const vis = new Set<string>(), order: string[] = [];
-  for (const src of [start, ...vids.filter((v) => v !== start)]) {
-    if (vis.has(src)) continue;
-    const q = [src];
-    vis.add(src);
-    while (q.length) {
-      const v = q.shift()!;
-      order.push(v);
-      for (const nb of adj.get(v) ?? []) {
-        if (!vis.has(nb)) { vis.add(nb); q.push(nb); }
-      }
-    }
-  }
-  return order;
-}
-
-function dfs(adj: Map<string, string[]>, vids: string[], start: string): string[] {
-  const vis = new Set<string>(), order: string[] = [];
-  const go = (v: string) => {
-    vis.add(v); order.push(v);
-    for (const nb of adj.get(v) ?? []) if (!vis.has(nb)) go(nb);
-  };
-  go(start);
-  for (const v of vids) if (!vis.has(v)) go(v);
-  return order;
-}
-
-// ─── Kruskal / DSU ────────────────────────────────────────────────────────────
-
-class DSU {
-  private parent: Map<string, string>;
-  private rank: Map<string, number>;
-
-  constructor(vids: string[]) {
-    this.parent = new Map(vids.map((v) => [v, v]));
-    this.rank = new Map(vids.map((v) => [v, 0]));
-  }
-
-  find(x: string): string {
-    if (this.parent.get(x) !== x) {
-      this.parent.set(x, this.find(this.parent.get(x)!));
-    }
-    return this.parent.get(x)!;
-  }
-
-  union(x: string, y: string): boolean {
-    const rx = this.find(x), ry = this.find(y);
-    if (rx === ry) return false;
-    const rankX = this.rank.get(rx)!, rankY = this.rank.get(ry)!;
-    if (rankX < rankY) this.parent.set(rx, ry);
-    else if (rankX > rankY) this.parent.set(ry, rx);
-    else { this.parent.set(ry, rx); this.rank.set(rx, rankX + 1); }
-    return true;
-  }
-}
-
-function kruskal(vids: string[], edges: Edge[]) {
-  const sorted = [...edges].sort((a, b) => a.weight - b.weight);
-  const dsu = new DSU(vids);
-  const mstEdges: Edge[] = [], skippedEdges: Edge[] = [];
-  let mstCost = 0;
-
-  for (const e of sorted) {
-    if (e.from === e.to) continue;
-    if (dsu.union(e.from, e.to)) {
-      mstEdges.push(e);
-      mstCost += e.weight;
-      if (mstEdges.length === vids.length - 1) break;
-    } else {
-      skippedEdges.push(e);
-    }
-  }
-
-  return {
-    mstEdges,
-    skippedEdges,
-    mstCost,
-    possible: mstEdges.length === vids.length - 1,
-  };
-}
-
-// ─── Grid background ──────────────────────────────────────────────────────────
-
-function GridBg({ W, H, isDark }: { W: number; H: number; isDark: boolean }) {
-  const lineClr = isDark ? "rgba(255,255,255,0.045)" : "rgba(30,50,120,0.065)";
-  const dotClr = isDark ? "rgba(255,255,255,0.16)" : "rgba(30,50,120,0.18)";
-  const els: React.ReactNode[] = [];
-
-  for (let x = 0; x <= W; x += CELL) {
-    els.push(
-      <line key={`v${x}`} x1={x} y1={0} x2={x} y2={H} stroke={lineClr} strokeWidth={0.6} />
-    );
-  }
-  for (let y = 0; y <= H; y += CELL) {
-    els.push(
-      <line key={`h${y}`} x1={0} y1={y} x2={W} y2={y} stroke={lineClr} strokeWidth={0.6} />
-    );
-  }
-  for (let x = 0; x <= W; x += CELL) {
-    for (let y = 0; y <= H; y += CELL) {
-      els.push(<circle key={`d${x},${y}`} cx={x} cy={y} r={1.5} fill={dotClr} />);
-    }
-  }
-
-  return <g>{els}</g>;
-}
+// ─── Extracted imports ────────────────────────────────────────────────────────
+import type { Edge, GraphConfig, AlgoType, AlgoResult, AlgoResults, Position } from "./graph/types/graph";
+import { buildAdj, bfs, dfs, kruskal, compareLabels } from "./graph/utils/graphAlgorithms";
+import { gridDims, staticLayout, staticRouteEdge, NODE_R } from "./graph/utils/graphLayout";
+import { GridBg } from "./graph/GridBg";
+import { graphPresets } from "./graph/data/graphPresets";
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
@@ -316,7 +64,7 @@ export function GraphCalculator() {
   const [algoStart, setAlgoStart] = useState("");
   const [neighborOrder, setNeighborOrder] = useState<"lvf" | "hvf">("lvf");
 
-  // ── Option 1: Tap row = replay once ─────────────────────────────────────────
+  // ── Animation state ─────────────────────────────────────────────────────────
   const [bfsRunId, setBfsRunId] = useState(0);
   const [dfsRunId, setDfsRunId] = useState(0);
   const [animatingAlgo, setAnimatingAlgo] = useState<"bfs" | "dfs" | null>(null);
@@ -338,46 +86,36 @@ export function GraphCalculator() {
   const [dtapFirst, setDtapFirst] = useState<string | null>(null);
   const [dtapTimer, setDtapTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
 
-  // ─── Adjacency ───────────────────────────────────────────────────────────────
+  // ─── Adjacency ────────────────────────────────────────────────────────────────
 
   const adj = useMemo(
     () => buildAdj(vertexIds, edges, config.directed),
     [vertexIds, edges, config.directed]
   );
 
-  // ─── sortedAdj ───────────────────────────────────────────────────────────────
-  // BUG FIX: Previously used `a.localeCompare(b)` which treats vertex labels as
-  // plain strings. This caused "90" > "100" and "110" to always sort last because
-  // JS string comparison is char-by-char ("9" > "1", "1" < "9").
-  //
-  // Fix: use `compareLabels()` which applies true numeric sort when both labels
-  // are integers (9 < 10 < 90 < 100 < 110), and falls back to locale-aware
-  // string sort for mixed/alphabetic labels. Weighted graphs still sort by
-  // edge weight (a number), which was already correct.
+  // ─── sortedAdj ────────────────────────────────────────────────────────────────
 
   const sortedAdj = useMemo(() => {
     const sorted = new Map<string, string[]>();
     for (const [v, neighbors] of adj) {
       const s = [...neighbors].sort((a, b) => {
         if (config.weighted) {
-          // weighted: sort by the actual edge weight (numeric) — unchanged
           const wa = Number(
             edges.find(
               (e) =>
-                e.from === v && e.to === a ||
+                (e.from === v && e.to === a) ||
                 (!config.directed && e.from === a && e.to === v)
             )?.weight ?? 0
           );
           const wb = Number(
             edges.find(
               (e) =>
-                e.from === v && e.to === b ||
+                (e.from === v && e.to === b) ||
                 (!config.directed && e.from === b && e.to === v)
             )?.weight ?? 0
           );
           return neighborOrder === "lvf" ? wa - wb : wb - wa;
         }
-        // unweighted: compare labels with proper numeric-aware sort
         const cmp = compareLabels(a, b);
         return neighborOrder === "lvf" ? cmp : -cmp;
       });
@@ -668,40 +406,6 @@ export function GraphCalculator() {
     },
     []
   );
-
-  const presets = [
-    {
-      label: "Simple cycle",
-      directed: false, weighted: false,
-      vids: ["A", "B", "C", "D"],
-      edgs: [["A", "B"], ["B", "C"], ["C", "D"], ["D", "A"]] as [string, string][],
-    },
-    {
-      label: "Directed DAG",
-      directed: true, weighted: false,
-      vids: ["A", "B", "C", "D", "E"],
-      edgs: [["A", "B"], ["A", "C"], ["B", "D"], ["C", "D"], ["D", "E"]] as [string, string][],
-    },
-    {
-      label: "Weighted MST",
-      directed: false, weighted: true,
-      vids: ["A", "B", "C", "D", "E"],
-      edgs: [["A", "B"], ["A", "C"], ["B", "C"], ["B", "D"], ["C", "E"], ["D", "E"]] as [string, string][],
-      weights: [4, 2, 1, 5, 8, 2],
-    },
-    {
-      label: "Directed cycle",
-      directed: true, weighted: false,
-      vids: ["A", "B", "C", "D"],
-      edgs: [["A", "B"], ["B", "C"], ["C", "D"], ["D", "B"]] as [string, string][],
-    },
-    {
-      label: "Disconnected",
-      directed: false, weighted: false,
-      vids: ["A", "B", "C", "D", "E", "F"],
-      edgs: [["A", "B"], ["B", "C"], ["D", "E"]] as [string, string][],
-    },
-  ];
 
   // ── Adjacency matrix ────────────────────────────────────────────────────────
 
@@ -1202,7 +906,6 @@ export function GraphCalculator() {
                       }}
                       style={{ cursor: "pointer" }}
                     >
-                      {/* Edge path */}
                       <path
                         d={re.d}
                         fill="none"
@@ -1762,7 +1465,7 @@ export function GraphCalculator() {
             </p>
           </div>
           <div className="p-3 flex flex-wrap gap-2">
-            {presets.map((p) => (
+            {graphPresets.map((p) => (
               <button
                 key={p.label}
                 onClick={() => applyPreset(p)}

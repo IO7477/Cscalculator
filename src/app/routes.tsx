@@ -11,7 +11,7 @@ import ExpressionEvaluator from "./pages/ExpressionEvaluator";
 import { ScientificCalculator } from "./pages/ScientificCalculator";
 import { SubnetCalculator } from "./pages/SubnetCalculator";
 import { TreeCalculator } from "./pages/TreeCalculator";
-import { GraphCalculator } from "./pages/GraphCalc";
+import { GraphCalculator } from "./components/graph/GraphCalc";
 
 export const router = createBrowserRouter([
   {
